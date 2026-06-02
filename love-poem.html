@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="format-detection" content="telephone=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
+<!-- 微信分享卡片 -->
+<meta property="og:title" content="致周清">
+<meta property="og:description" content="遇见你，是时光里最美的意外 💌">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="致周清">
+
+<title>致周清</title>
+
+<style>
+  :root {
+    --rose: #e11d48;
+    --rose-light: #fda4af;
+    --bg: #0f0f1a;
+    --card: rgba(255,255,255,0.04);
+    --text: #e2e8f0;
+    --safe-bottom: env(safe-area-inset-bottom, 16px);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body {
+    width: 100%;
+    min-height: 100vh;
+    /* 微信内置浏览器兼容 */
+    min-height: -webkit-fill-available;
+  }
+
+  body {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg);
+    /* 中文字体优先使用系统自带 */
+    font-family:
+      'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei',
+      'Noto Serif SC', 'STKaiti', 'KaiTi', 'SimSun', serif;
+    overflow-x: hidden;
+    overflow-y: auto;
+    cursor: default;
+    -webkit-font-smoothing: antialiased;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-overflow-scrolling: touch;
+    padding: 20px 0 40px;
+  }
+
+  /* ── 星空背景 ── */
+  .stars {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .star {
+    position: absolute;
+    width: 2px;
+    height: 2px;
+    background: #fff;
+    border-radius: 50%;
+    animation: twinkle var(--dur) ease-in-out infinite;
+    animation-delay: var(--delay);
+    opacity: 0;
+  }
+
+  @keyframes twinkle {
+    0%, 100% { opacity: 0.08; transform: scale(1); }
+    50%      { opacity: 0.85; transform: scale(1.6); }
+  }
+
+  /* ── 飘落花瓣 ── */
+  .petals {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  .petal {
+    position: absolute;
+    top: -40px;
+    animation: fall var(--fall-dur) var(--fall-delay) linear infinite;
+    opacity: 0.65;
+    will-change: transform;
+  }
+
+  @keyframes fall {
+    0%   { transform: translateY(-40px) rotate(0deg) translateX(0px); opacity: 0.75; }
+    20%  { transform: translateY(20vh) rotate(72deg) translateX(25px); }
+    40%  { transform: translateY(40vh) rotate(144deg) translateX(-18px); opacity: 0.55; }
+    60%  { transform: translateY(60vh) rotate(216deg) translateX(20px); }
+    80%  { transform: translateY(80vh) rotate(288deg) translateX(-22px); opacity: 0.25; }
+    100% { transform: translateY(105vh) rotate(360deg) translateX(-10px); opacity: 0; }
+  }
+
+  /* ── 主卡片 ── */
+  .wrapper {
+    position: relative;
+    z-index: 10;
+    width: 88vw;
+    max-width: 480px;
+    margin: 16px auto;
+    padding: 40px 32px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 20px;
+    /* 微信浏览器可能不支持 backdrop-filter，降级为纯透明 */
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    box-shadow: 0 0 60px rgba(225, 29, 72, 0.06), 0 0 150px rgba(0,0,0,0.5);
+    text-align: center;
+    animation: fadeUp 1.2s ease;
+  }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(30px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ── 装饰 ── */
+  .ornament {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    margin-bottom: 28px;
+    color: var(--rose-light);
+    font-size: 0.65rem;
+    letter-spacing: 4px;
+    opacity: 0.45;
+  }
+
+  .ornament::before,
+  .ornament::after {
+    content: '';
+    width: 40px;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--rose-light), transparent);
+  }
+
+  .title {
+    font-size: 1rem;
+    color: var(--rose-light);
+    letter-spacing: 8px;
+    margin-bottom: 24px;
+    opacity: 0.65;
+  }
+
+  .recipient {
+    font-size: 2.4rem;
+    font-weight: 700;
+    color: #fff;
+    margin-bottom: 6px;
+    letter-spacing: 6px;
+    background: linear-gradient(180deg, #fff 30%, #fecdd3 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .divider {
+    width: 36px;
+    height: 2px;
+    background: var(--rose);
+    margin: 22px auto;
+    border-radius: 2px;
+    opacity: 0.5;
+  }
+
+  /* ── 诗句 ── */
+  .poem {
+    line-height: 2.5;
+    font-size: 1rem;
+    color: #cbd5e1;
+    text-align: center;
+    letter-spacing: 1px;
+  }
+
+  .poem .line {
+    animation: reveal 0.7s ease forwards;
+    opacity: 0;
+  }
+
+  .poem .line:nth-child(1)  { animation-delay: 0.5s; }
+  .poem .line:nth-child(2)  { animation-delay: 0.8s; }
+  .poem .line:nth-child(3)  { animation-delay: 1.1s; }
+  .poem .line:nth-child(4)  { animation-delay: 1.4s; }
+  .poem .line:nth-child(5)  { animation-delay: 1.7s; }
+  .poem .line:nth-child(6)  { animation-delay: 2.0s; }
+  .poem .line:nth-child(7)  { animation-delay: 2.3s; }
+  .poem .line:nth-child(8)  { animation-delay: 2.6s; }
+  .poem .line:nth-child(9)  { animation-delay: 2.9s; }
+  .poem .line:nth-child(10) { animation-delay: 3.2s; }
+
+  @keyframes reveal {
+    from { opacity: 0; transform: translateY(10px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ── 署名 ── */
+  .signature {
+    margin-top: 32px;
+    color: var(--rose-light);
+    font-size: 0.9rem;
+    letter-spacing: 4px;
+    opacity: 0;
+    animation: reveal 0.8s ease 3.0s forwards;
+  }
+
+  .heart {
+    display: inline-block;
+    color: var(--rose);
+    animation: heartbeat 1.2s ease-in-out infinite;
+    font-size: 1.15rem;
+  }
+
+  @keyframes heartbeat {
+    0%, 100% { transform: scale(1); }
+    15%      { transform: scale(1.22); }
+    30%      { transform: scale(1); }
+    45%      { transform: scale(1.18); }
+    60%      { transform: scale(1); }
+  }
+
+  /* ── 手指引导提示 ── */
+  .hint {
+    position: fixed;
+    bottom: 30px;
+    bottom: calc(30px + env(safe-area-inset-bottom, 0px));
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 20;
+    color: rgba(255,255,255,0.35);
+    font-size: 0.75rem;
+    letter-spacing: 2px;
+    animation: hintPulse 3s ease-in-out infinite;
+    pointer-events: none;
+  }
+
+  @keyframes hintPulse {
+    0%, 100% { opacity: 0.25; }
+    50%      { opacity: 0.6; }
+  }
+
+  /* ── 手机适配 ── */
+  @media (max-width: 480px) {
+    body { padding: 12px 0 36px; }
+    .wrapper {
+      width: 92vw;
+      padding: 32px 20px;
+      border-radius: 16px;
+    }
+    .recipient { font-size: 2rem; letter-spacing: 4px; }
+    .poem { font-size: 0.92rem; line-height: 2.3; }
+    .title { font-size: 0.9rem; letter-spacing: 6px; }
+    .ornament { margin-bottom: 20px; }
+    .signature { margin-top: 24px; }
+  }
+
+  /* 小屏手机 (iPhone SE, 360px) */
+  @media (max-width: 380px) {
+    .wrapper { padding: 28px 16px; }
+    .recipient { font-size: 1.7rem; }
+    .poem { font-size: 0.85rem; line-height: 2.1; }
+    .poem .line { margin-bottom: 2px; }
+  }
+
+  /* 平板 / 大屏 */
+  @media (min-width: 768px) {
+    .wrapper { padding: 52px 48px; }
+    .recipient { font-size: 3rem; }
+    .poem { font-size: 1.1rem; line-height: 2.6; }
+  }
+</style>
+</head>
+<body>
+
+<!-- 星空 -->
+<div class="stars" id="stars"></div>
+
+<!-- 花瓣 -->
+<div class="petals" id="petals"></div>
+
+<!-- 卡片 -->
+<div class="wrapper">
+  <div class="ornament">❦</div>
+  <div class="title">写 给</div>
+  <h1 class="recipient">周 清</h1>
+  <div class="divider"></div>
+
+  <div class="poem">
+    <p class="line">遇见你，是时光里最美的意外</p>
+    <p class="line">你的名字，是我心底最温柔的对白</p>
+    <p class="line">清晨的第一缕光，像你明亮的眼眸</p>
+    <p class="line">深夜的最后一颗星，是我念你的守候</p>
+    <p class="line">风起时，我想起你轻扬的发梢</p>
+    <p class="line">雨落时，你是我唯一想躲进的怀抱</p>
+    <p class="line">世界很大，大到我们走了很久才相遇</p>
+    <p class="line">世界很小，小到我的眼里只装得下你</p>
+    <p class="line">余生很长，愿与你慢慢走</p>
+    <p class="line">把每一个平凡的日子，过成诗的节奏</p>
+  </div>
+
+  <div class="signature">
+    爱你的 <span class="heart">♥</span>
+  </div>
+</div>
+
+<!-- 底部提示 -->
+<div class="hint">↑ 向上滑动 ↑</div>
+
+<script>
+(function() {
+  'use strict';
+
+  // ── 星空 ──
+  var starsEl = document.getElementById('stars');
+  var starCount = 100;
+  var starHtml = '';
+  for (var i = 0; i < starCount; i++) {
+    var x = Math.random() * 100;
+    var y = Math.random() * 100;
+    var size = Math.random() * 2 + 1;
+    var dur = Math.random() * 3 + 2.5;
+    var delay = Math.random() * 5;
+    starHtml += '<div class="star" style="'
+      + 'left:' + x + '%;'
+      + 'top:' + y + '%;'
+      + 'width:' + size + 'px;'
+      + 'height:' + size + 'px;'
+      + '--dur:' + dur + 's;'
+      + '--delay:' + delay + 's;'
+    + '"></div>';
+  }
+  starsEl.innerHTML = starHtml;
+
+  // ── 花瓣 ──
+  var petalsEl = document.getElementById('petals');
+  var emojis = ['🌸', '💮', '🌷', '🪷', '🌺', '🌹', '💐'];
+  var petalCount = window.innerWidth < 480 ? 12 : 18;
+  var petalHtml = '';
+  for (var j = 0; j < petalCount; j++) {
+    var left = Math.random() * 100;
+    var emoji = emojis[Math.floor(Math.random() * emojis.length)];
+    var fallDur = Math.random() * 6 + 8;
+    var fallDelay = Math.random() * 9;
+    var pSize = Math.random() * 8 + 14;
+    petalHtml += '<div class="petal" style="'
+      + 'left:' + left + '%;'
+      + 'font-size:' + pSize + 'px;'
+      + '--fall-dur:' + fallDur + 's;'
+      + '--fall-delay:' + fallDelay + 's;'
+    + '">' + emoji + '</div>';
+  }
+  petalsEl.innerHTML = petalHtml;
+
+  // ── 隐藏底部提示 ──
+  var hint = document.querySelector('.hint');
+  if (hint) {
+    window.addEventListener('scroll', function() {
+      hint.style.opacity = '0';
+      hint.style.transition = 'opacity 0.6s';
+    }, { once: true });
+  }
+})();
+</script>
+
+</body>
+</html>
