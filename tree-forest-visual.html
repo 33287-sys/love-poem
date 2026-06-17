@@ -590,7 +590,7 @@ function drawMain() {
   // 数据点
   for (let i = 0; i < dataX.length; i++) {
     const px = PAD + ((dataX[i][0] - xMin) / (xMax - xMin || 1)) * plotW;
-    const py = PAD + ((dataY[i] - yMin) / (yMax - yMin || 1)) * plotH;
+    const py = PAD + ((dataX[i][1] - yMin) / (yMax - yMin || 1)) * plotH;
     mainCtx.beginPath();
     mainCtx.arc(px, py, 6, 0, Math.PI * 2);
     mainCtx.fillStyle = dataY[i] === 0 ? '#4299e1' : '#e53e3e';
@@ -842,7 +842,7 @@ function updateMetrics() {
 
   // 准确率
   let correct = 0;
-  const preds = modelType === 'dt' ? model.predictAll(dataX) : model.predictAll(dataX);
+  const preds = model.predictAll(dataX);
   for (let i = 0; i < dataY.length; i++) { if (preds[i] === dataY[i]) correct++; }
   const acc = (correct / dataY.length * 100).toFixed(1);
 
@@ -894,7 +894,7 @@ document.getElementById('btnModel').addEventListener('click', (e) => {
   document.querySelectorAll('#btnModel button').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
   modelType = btn.dataset.model;
-  rfTreeIdx = 0;
+  model = null; rfTreeIdx = 0; stepStack = [];
   document.getElementById('badgeModel').textContent = modelType === 'dt' ? '决策树' : '随机森林';
   document.getElementById('rfParams').style.display = modelType === 'rf' ? '' : 'none';
   drawMain(); drawTree(); updateMetrics();
