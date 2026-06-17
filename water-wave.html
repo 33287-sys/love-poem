@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>清水涟漪 — 手势交互</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    overflow: hidden;
+    background: #000;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: none;
+  }
+
+  canvas { display: block; position: fixed; top: 0; left: 0; }
+
+  /* 摄像头预览小窗 */
+  .camera-preview {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    width: 180px;
+    height: 135px;
+    border-radius: 12px;
+    border: 2px solid rgba(255,255,255,0.25);
+    object-fit: cover;
+    z-index: 10;
+    opacity: 0.85;
+    transition: opacity 0.5s;
+    pointer-events: none;
+    transform: scaleX(-1);
+    box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+  }
+
+  /* 权限弹窗 */
+  .overlay {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    background: rgba(0,0,0,0.85);
+    backdrop-filter: blur(10px);
+    transition: opacity 0.6s ease;
+  }
+  .overlay.hidden { opacity: 0; pointer-events: none; }
+
+  .dialog {
+    background: rgba(20,30,50,0.9);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 24px;
+    padding: 48px 40px;
+    text-align: center;
+    max-width: 420px;
+    width: 90%;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  }
+  .dialog h2 {
+    color: #fff;
+    font-size: 24px;
+    font-weight: 400;
+    letter-spacing: 3px;
+    margin-bottom: 12px;
+  }
+  .dialog .icon { font-size: 56px; margin-bottom: 16px; }
+  .dialog p {
+    color: rgba(255,255,255,0.55);
+    font-size: 14px;
+    line-height: 1.8;
+    margin-bottom: 28px;
+  }
+  .dialog button {
+    background: rgba(100,180,255,0.2);
+    border: 1px solid rgba(100,180,255,0.4);
+    color: #fff;
+    padding: 14px 36px;
+    border-radius: 30px;
+    font-size: 16px;
+    letter-spacing: 2px;
+    cursor: pointer;
+    transition: all 0.3s;
+  }
+  .dialog button:hover {
+    background: rgba(100,180,255,0.35);
+    border-color: rgba(100,180,255,0.7);
+    box-shadow: 0 0 30px rgba(100,180,255,0.2);
+  }
+
+  /* 状态指示 */
+  .status {
+    position: fixed;
+    top: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: rgba(255,255,255,0.6);
+    font-size: 13px;
+    letter-spacing: 1px;
+    z-index: 10;
+    pointer-events: none;
+    transition: opacity 0.8s;
+  }
+  .status .dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: #4f8;
+    box-shadow: 0 0 8px #4f8;
+  }
+  .status .dot.off { background: #f44; box-shadow: 0 0 8px #f44; }
+
+  .fps {
+    position: fixed;
+    top: 24px;
+    right: 24px;
+    color: rgba(255,255,255,0.3);
+    font-size: 11px;
+    font-family: 'Consolas', monospace;
+    z-index: 10;
+    pointer-events: none;
+  }
+</style>
+</head>
+<body>
+
+<!-- 权限弹窗 -->
+<div class="overlay" id="overlay">
+  <div class="dialog">
+    <div class="icon">💧</div>
+    <h2>清水涟漪</h2>
+    <p>用手势在水面划过<br>指尖所到之处泛起涟漪<br>需要开启摄像头来识别手势</p>
+    <button id="btnStart">✨ 开启体验</button>
+  </div>
+</div>
+
+<!-- 摄像头小窗 -->
+<video id="preview" class="camera-preview" muted playsinline></video>
+
+<!-- 主画布 -->
+<canvas id="canvas"></canvas>
+
+<!-- 状态栏 -->
+<div class="status" id="status">
+  <span class="dot" id="dot"></span>
+  <span id="statusText">等待摄像头...</span>
+</div>
+<div class="fps" id="fps"></div>
+
+<!-- MediaPipe Hands -->
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/hands.js" crossorigin="anonymous"></script>
+
+<script>
+// ==================== DOM 引用 ====================
+const overlay = document.getElementById('overlay');
+const btnStart = document.getElementById('btnStart');
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d', { alpha: false });
+const preview = document.getElementById('preview');
+const statusEl = document.getElementById('status');
+const statusText = document.getElementById('statusText');
+const dot = document.getElementById('dot');
+const fpsEl = document.getElementById('fps');
+
+// ==================== 配置 ====================
+const isMobile = /Mobi|Android|iPhone/i.test(navigator.userAgent);
+const INTERNAL_W = isMobile ? 420 : 560;  // 自适应分辨率：桌面高清 / 移动端保性能
+let INTERNAL_H;                    // 根据屏幕比例计算
+let SCALE;                         // 显示缩放比
+
+const DAMPING = 0.94;              // 阻尼（更快的衰减 → 清水感）
+const RIPPLE_BASE = 22;            // 基础涟漪强度（轻柔小涟漪）
+const REFRACTION = 4;              // 折射强度（轻微折射 → 清澈通透）
+const SPECULAR_POW = 24;           // 高光锐度（更细碎的反光）
+const SPECULAR_STR = 0.18;         // 高光强度（淡淡的亮斑）
+
+// ==================== 状态 ====================
+let video, stream;
+let iw, ih;                        // 内部宽高
+let currentBuf, previousBuf;       // Float32Array 高度场
+let imageData;                     // 输出图像
+let handResults = null;            // 最新 MediaPipe 结果
+let mpProcessing = false;          // MediaPipe 是否正在处理
+let frameCount = 0, fpsTime = 0;
+let cameraReady = false;
+let mediapipeReady = false;
+
+// ==================== 画布尺寸 ====================
+function resize() {
+  const W = window.innerWidth;
+  const H = window.innerHeight;
+  canvas.width = W;
+  canvas.height = H;
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+
+  // 内部分辨率按比例缩放
+  SCALE = Math.max(1, Math.floor(W / INTERNAL_W));
+  iw = Math.floor(W / SCALE);
+  ih = Math.floor(H / SCALE);
+
+  // 重新分配高度场
+  const size = iw * ih;
+  currentBuf = new Float32Array(size);
+  previousBuf = new Float32Array(size);
+  imageData = ctx.createImageData(iw, ih);
+}
+resize();
+window.addEventListener('resize', () => { resize(); });
+
+// ==================== 摄像头 ====================
+async function initCamera() {
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+        facingMode: 'user'
+      },
+      audio: false
+    });
+
+    // 创建隐藏 video 元素来接收摄像头流
+    video = document.createElement('video');
+    video.setAttribute('playsinline', '');
+    video.setAttribute('muted', '');
+    video.srcObject = stream;
+
+    await new Promise((resolve) => {
+      video.onloadedmetadata = () => {
+        video.play().then(resolve);
+      };
+    });
+
+    // 小窗预览
+    preview.srcObject = stream;
+    preview.style.display = 'block';
+
+    cameraReady = true;
+    updateStatus('摄像头就绪', true);
+    return true;
+  } catch (err) {
+    console.warn('摄像头不可用:', err.message);
+    updateStatus('摄像头不可用 — 使用鼠标模式', false);
+    return false;
+  }
+}
+
+// ==================== MediaPipe Hands ====================
+async function initMediaPipe() {
+  if (typeof Hands === 'undefined') {
+    console.warn('MediaPipe 未加载，使用鼠标模式');
+    updateStatus('手势库未加载 — 使用鼠标模式', false);
+    return false;
+  }
+
+  try {
+    const hands = new Hands({
+      locateFile: (file) =>
+        `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/${file}`
+    });
+
+    hands.setOptions({
+      maxNumHands: 2,
+      modelComplexity: 1,          // 0=lite, 1=full
+      minDetectionConfidence: 0.7,
+      minTrackingConfidence: 0.5
+    });
+
+    hands.onResults((results) => {
+      handResults = results;
+      mpProcessing = false;
+    });
+
+    // 暴露到全局用于主循环
+    window.__hands = hands;
+    mediapipeReady = true;
+    updateStatus('手势识别就绪 ✋', true);
+    return true;
+  } catch (err) {
+    console.warn('MediaPipe 初始化失败:', err.message);
+    updateStatus('手势库初始化失败 — 使用鼠标模式', false);
+    return false;
+  }
+}
+
+function updateStatus(text, ok) {
+  statusText.textContent = text;
+  dot.className = 'dot' + (ok ? '' : ' off');
+}
+
+// ==================== 涟漪生成 ====================
+function addRipple(cx, cy, strength, radius) {
+  const ix = Math.floor(cx);
+  const iy = Math.floor(cy);
+  const r = Math.floor(radius);
+  if (r < 1) return;
+  const r2 = r * r;
+
+  const x0 = Math.max(0, ix - r);
+  const x1 = Math.min(iw - 1, ix + r);
+  const y0 = Math.max(0, iy - r);
+  const y1 = Math.min(ih - 1, iy + r);
+
+  for (let y = y0; y <= y1; y++) {
+    const row = y * iw;
+    for (let x = x0; x <= x1; x++) {
+      const dx = x - cx;
+      const dy = y - cy;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < r2) {
+        const factor = Math.exp(-d2 / (r2 * 0.25));
+        const idx = row + x;
+        const val = strength * factor;
+        currentBuf[idx] += val;
+        previousBuf[idx] += val;
+      }
+    }
+  }
+}
+
+// ==================== 从手势生成涟漪 ====================
+const FINGERTIPS = [4, 8, 12, 16, 20]; // 五指指尖 landmark ID
+const prevFingerPos = []; // 上一帧指尖位置（用于计算速度）
+
+function processGestures() {
+  if (!handResults || !handResults.multiHandLandmarks) return;
+
+  const landmarks = handResults.multiHandLandmarks;
+  const w = video.videoWidth || 640;
+  const h = video.videoHeight || 480;
+
+  for (let hIdx = 0; hIdx < landmarks.length; hIdx++) {
+    const lm = landmarks[hIdx];
+
+    for (const tipId of FINGERTIPS) {
+      const tip = lm[tipId];
+      // 映射到内部坐标 (镜像翻转)
+      const fx = (1 - tip.x) * iw;  // 镜像
+      const fy = tip.y * ih;
+
+      // 速度估算
+      const key = `${hIdx}-${tipId}`;
+      const prev = prevFingerPos[key];
+      let speed = 0;
+      if (prev) {
+        const dx = fx - prev.x;
+        const dy = fy - prev.y;
+        speed = Math.sqrt(dx * dx + dy * dy);
+      }
+      prevFingerPos[key] = { x: fx, y: fy };
+
+      // 涟漪强度 = 基础 + 速度加成
+      const str = RIPPLE_BASE + Math.min(speed * 4, 28);
+      const rad = 2.5 + Math.min(speed * 0.3, 4);
+
+      addRipple(fx, fy, str, rad);
+    }
+
+    // 掌心位置产生更大的涟漪
+    const wrist = lm[0];
+    const midFinger = lm[9];
+    const palmX = (1 - (wrist.x + midFinger.x) / 2) * iw;
+    const palmY = ((wrist.y + midFinger.y) / 2) * ih;
+    addRipple(palmX, palmY, RIPPLE_BASE * 0.5, 5);
+  }
+
+  // 清理不再存在的手指位置记录
+  const activeKeys = new Set();
+  for (let hIdx = 0; hIdx < landmarks.length; hIdx++) {
+    for (const tipId of FINGERTIPS) {
+      activeKeys.add(`${hIdx}-${tipId}`);
+    }
+  }
+  for (const key of Object.keys(prevFingerPos)) {
+    if (!activeKeys.has(key)) delete prevFingerPos[key];
+  }
+}
+
+// ==================== 波浪传播 ====================
+function simulate() {
+  const d = DAMPING;
+  const w = iw, h = ih;
+  const cur = currentBuf;
+  const prev = previousBuf;
+
+  for (let y = 1; y < h - 1; y++) {
+    const row = y * w;
+    for (let x = 1; x < w - 1; x++) {
+      const idx = row + x;
+      const avg = (cur[idx - 1] + cur[idx + 1] + cur[idx - w] + cur[idx + w]) * 0.5;
+      let val = avg - prev[idx];
+      val *= d;
+      // 数值钳制
+      if (val > 600) val = 600;
+      if (val < -600) val = -600;
+      prev[idx] = val;
+    }
+  }
+  // 交换
+  [currentBuf, previousBuf] = [previousBuf, currentBuf];
+}
+
+// ==================== 渲染 ====================
+function render() {
+  const data = imageData.data;
+  const w = iw, h = ih;
+  const cur = currentBuf;
+
+  // 将摄像头画面绘制到离屏 canvas 以便逐像素采样
+  if (cameraReady && video.readyState >= 2) {
+    // 用离屏 canvas 捕获视频帧
+    if (!render._offscreen) {
+      render._offscreen = document.createElement('canvas');
+      render._offscreen.width = w;
+      render._offscreen.height = h;
+      render._offCtx = render._offscreen.getContext('2d', { willReadFrequently: true });
+    }
+    const offCtx = render._offCtx;
+    // 镜像绘制
+    offCtx.imageSmoothingEnabled = true;
+	    offCtx.imageSmoothingQuality = 'high';
+	    offCtx.save();
+    offCtx.clearRect(0, 0, w, h);
+    offCtx.scale(-1, 1);
+    offCtx.drawImage(video, -w, 0, w, h);
+    offCtx.restore();
+    const srcData = offCtx.getImageData(0, 0, w, h).data;
+    renderVideoRefraction(data, cur, srcData, w, h);
+  } else {
+    // 无摄像头时用深色水面
+    renderWaterOnly(data, cur, w, h);
+  }
+
+  // 绘制到主画布
+  ctx.imageSmoothingEnabled = true;
+	  ctx.imageSmoothingQuality = 'high';
+	  ctx.putImageData(imageData, 0, 0);
+  // 放大到全屏
+  ctx.drawImage(canvas, 0, 0, w, h, 0, 0, canvas.width, canvas.height);
+}
+
+function renderVideoRefraction(data, cur, src, w, h) {
+  const refStr = REFRACTION;
+
+  for (let y = 0; y < h; y++) {
+    const row = y * w;
+    for (let x = 0; x < w; x++) {
+      const idx = row + x;
+      const p = idx * 4;
+
+      // 计算法线
+      const l = x > 0     ? cur[idx - 1] : cur[idx];
+      const r = x < w - 1 ? cur[idx + 1] : cur[idx];
+      const t = y > 0     ? cur[idx - w] : cur[idx];
+      const b = y < h - 1 ? cur[idx + w] : cur[idx];
+
+      const nx = (r - l) * 0.5;
+      const ny = (b - t) * 0.5;
+
+      // 折射偏移
+      const ox = nx * refStr;
+      const oy = ny * refStr;
+
+      // 采样坐标
+      let sx = x + ox;
+      let sy = y + oy;
+      sx = Math.max(0, Math.min(w - 1, sx));
+      sy = Math.max(0, Math.min(h - 1, sy));
+
+      const si = (Math.floor(sy) * w + Math.floor(sx)) * 4;
+
+      let pr = src[si];
+      let pg = src[si + 1];
+      let pb = src[si + 2];
+
+      // 高度决定色调微调（清水感：波谷微蓝，波峰微亮）
+      const height = cur[idx];
+      const hNorm = height / 80;
+
+      if (hNorm < -0.2) {
+        // 波谷 → 极轻微蓝调（清水通透感）
+        const t2 = Math.min((-hNorm - 0.2) / 0.8, 0.3);
+        pr = pr * (1 - t2 * 0.06);
+        pg = pg * (1 - t2 * 0.02);
+        pb = Math.min(255, pb + t2 * 12);
+      }
+
+      // 镜面高光（清水的反光）
+      const specDot = nx * 0.4 + ny * 0.4 + 0.2;
+      const spec = Math.pow(Math.max(0, specDot), SPECULAR_POW) * SPECULAR_STR * 255;
+
+      pr = Math.min(255, pr + spec);
+      pg = Math.min(255, pg + spec * 0.9);
+      pb = Math.min(255, pb + spec * 0.8);
+
+      data[p]     = Math.floor(Math.max(0, Math.min(255, pr)));
+      data[p + 1] = Math.floor(Math.max(0, Math.min(255, pg)));
+      data[p + 2] = Math.floor(Math.max(0, Math.min(255, pb)));
+      data[p + 3] = 255;
+    }
+  }
+}
+
+function renderWaterOnly(data, cur, w, h) {
+  // 无摄像头时的纯水渲染
+  for (let y = 0; y < h; y++) {
+    const row = y * w;
+    for (let x = 0; x < w; x++) {
+      const idx = row + x;
+      const p = idx * 4;
+
+      const l = x > 0     ? cur[idx - 1] : cur[idx];
+      const r = x < w - 1 ? cur[idx + 1] : cur[idx];
+      const t = y > 0     ? cur[idx - w] : cur[idx];
+      const b = y < h - 1 ? cur[idx + w] : cur[idx];
+
+      const nx = (r - l) * 0.5;
+      const ny = (b - t) * 0.5;
+      const hNorm = cur[idx] / 80;
+
+      let pr, pg, pb;
+      if (hNorm < -0.3) {
+        const tn = Math.min((-hNorm - 0.3) / 0.7, 1);
+        pr = 5; pg = 25 + tn * 35; pb = 90 + tn * 100;
+      } else if (hNorm < 0.3) {
+        const tn = (hNorm + 0.3) / 0.6;
+        pr = 15 + tn * 35; pg = 80 + tn * 80; pb = 180 + tn * 75;
+      } else {
+        const tn = Math.min((hNorm - 0.3) / 0.7, 1);
+        pr = 50 + tn * 205; pg = 160 + tn * 95; pb = 255;
+      }
+
+      const spec = Math.pow(Math.max(0, nx * 0.4 + ny * 0.4 + 0.2), SPECULAR_POW) * SPECULAR_STR * 255;
+      pr = Math.min(255, pr + spec);
+      pg = Math.min(255, pg + spec * 0.9);
+      pb = Math.min(255, pb + spec * 0.8);
+
+      data[p]     = Math.floor(pr);
+      data[p + 1] = Math.floor(pg);
+      data[p + 2] = Math.floor(pb);
+      data[p + 3] = 255;
+    }
+  }
+}
+
+// ==================== 鼠标/触摸回退 ====================
+let mouseX = -100, mouseY = -100;
+let prevMX = -100, prevMY = -100;
+let mouseDown = false;
+
+canvas.addEventListener('mousemove', (e) => {
+  mouseX = e.clientX / SCALE;
+  mouseY = e.clientY / SCALE;
+});
+canvas.addEventListener('mousedown', (e) => {
+  mouseDown = true;
+  const mx = e.clientX / SCALE;
+  const my = e.clientY / SCALE;
+  addRipple(mx, my, RIPPLE_BASE * 1.5, 10);
+});
+canvas.addEventListener('mouseup', () => { mouseDown = false; });
+canvas.addEventListener('mouseleave', () => { mouseDown = false; });
+
+canvas.addEventListener('touchstart', (e) => {
+  e.preventDefault();
+  mouseDown = true;
+  const t = e.touches[0];
+  mouseX = t.clientX / SCALE;
+  mouseY = t.clientY / SCALE;
+  addRipple(mouseX, mouseY, RIPPLE_BASE * 1.5, 10);
+}, { passive: false });
+
+canvas.addEventListener('touchmove', (e) => {
+  e.preventDefault();
+  const t = e.touches[0];
+  mouseX = t.clientX / SCALE;
+  mouseY = t.clientY / SCALE;
+}, { passive: false });
+
+canvas.addEventListener('touchend', (e) => {
+  e.preventDefault();
+  mouseDown = false;
+}, { passive: false });
+
+function processMouse() {
+  if (mediapipeReady && handResults?.multiHandLandmarks?.length > 0) return; // 手势优先
+
+  const dx = mouseX - prevMX;
+  const dy = mouseY - prevMY;
+  const speed = Math.sqrt(dx * dx + dy * dy);
+
+  if (speed > 0.3 || mouseDown) {
+    const str = mouseDown ? RIPPLE_BASE * 1.2 : RIPPLE_BASE * Math.min(speed / 12, 0.8);
+    const rad = mouseDown ? 5 : 2 + Math.min(speed / 3, 4);
+    addRipple(mouseX, mouseY, str, rad);
+  }
+  prevMX = mouseX;
+  prevMY = mouseY;
+}
+
+// ==================== 主循环 ====================
+function loop(timestamp) {
+  // FPS
+  frameCount++;
+  if (timestamp - fpsTime >= 1000) {
+    const fps = Math.round(frameCount / ((timestamp - fpsTime) / 1000));
+    fpsEl.textContent = `FPS ${fps}`;
+    frameCount = 0;
+    fpsTime = timestamp;
+  }
+
+  // 发送帧到 MediaPipe (每2帧一次以减少负载)
+  if (mediapipeReady && cameraReady && !mpProcessing && frameCount % 2 === 0) {
+    mpProcessing = true;
+    window.__hands.send({ image: video }).catch(() => { mpProcessing = false; });
+  }
+
+  // 手势涟漪 或 鼠标回退
+  if (mediapipeReady && handResults?.multiHandLandmarks?.length > 0) {
+    processGestures();
+    updateStatus('手势追踪中 ✋', true);
+  } else {
+    processMouse();
+  }
+
+  // 波浪模拟
+  simulate();
+
+  // 渲染
+  render();
+
+  requestAnimationFrame(loop);
+}
+
+// ==================== 启动流程 ====================
+async function start() {
+  overlay.classList.add('hidden');
+
+  // 并行初始化
+  const camOk = await initCamera();
+  const mpOk = await initMediaPipe();
+
+  if (camOk) {
+    // 几秒后隐藏状态栏
+    setTimeout(() => { statusEl.style.opacity = '0'; }, 5000);
+  }
+
+  // 初始涟漪
+  setTimeout(() => {
+    addRipple(iw / 2, ih / 2, RIPPLE_BASE * 1.2, 10);
+  }, 500);
+
+  requestAnimationFrame(loop);
+}
+
+btnStart.addEventListener('click', start);
+
+// 如果摄像头被拒绝，允许直接进入鼠标模式
+setTimeout(() => {
+  if (!cameraReady) {
+    updateStatus('摄像头未授权 — 点击任意位置开始鼠标模式', false);
+    overlay.classList.add('hidden');
+    requestAnimationFrame(loop);
+  }
+}, 3000);
+
+console.log('💧 清水涟漪 — 手势交互水波');
+console.log('  前置摄像头 + MediaPipe 手势识别');
+console.log('  指尖划过 → 涟漪泛起');
+console.log('  无摄像头时自动回退鼠标/触控模式');
+</script>
+</body>
+</html>
