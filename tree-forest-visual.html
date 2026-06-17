@@ -1,0 +1,1020 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>决策树与随机森林 — 交互式学习</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', 'PingFang SC', system-ui, sans-serif;
+    background: #f0f4f8;
+    color: #2d3748;
+    overflow-x: hidden;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* 顶栏 */
+  .header {
+    background: linear-gradient(135deg, #1a365d 0%, #2b6cb0 50%, #3182ce 100%);
+    color: #fff;
+    padding: 12px 24px;
+    display: flex; align-items: center; gap: 16px;
+    flex-wrap: wrap;
+    box-shadow: 0 2px 12px rgba(0,0,0,.15);
+    position: relative; z-index: 20;
+  }
+  .header h1 { font-size: 20px; font-weight: 600; letter-spacing: 1px; }
+  .header .badge {
+    background: rgba(255,255,255,.18);
+    padding: 4px 12px; border-radius: 20px;
+    font-size: 12px; letter-spacing: 1px;
+  }
+
+  /* 主布局 */
+  .main {
+    display: flex;
+    gap: 12px;
+    padding: 12px;
+    max-width: 1400px;
+    margin: 0 auto;
+    height: calc(100vh - 60px);
+  }
+
+  /* 左侧控制面板 */
+  .sidebar {
+    width: 230px; min-width: 230px;
+    background: #fff; border-radius: 14px;
+    padding: 16px;
+    box-shadow: 0 1px 6px rgba(0,0,0,.08);
+    display: flex; flex-direction: column; gap: 14px;
+    overflow-y: auto;
+  }
+  .section-title {
+    font-size: 12px; text-transform: uppercase;
+    letter-spacing: 2px; color: #a0aec0;
+    margin-bottom: 2px;
+  }
+  .btn-group { display: flex; flex-wrap: wrap; gap: 6px; }
+  .btn {
+    padding: 7px 12px; border-radius: 8px; border: 1px solid #e2e8f0;
+    background: #fff; cursor: pointer; font-size: 13px;
+    transition: all .18s; white-space: nowrap;
+  }
+  .btn:hover { background: #edf2f7; }
+  .btn.active { background: #3182ce; color: #fff; border-color: #3182ce; }
+  .btn.accent { background: #48bb78; color: #fff; border-color: #48bb78; }
+  .btn.accent:hover { background: #38a169; }
+  .btn.warn { background: #ed8936; color: #fff; border-color: #ed8936; }
+
+  label.mini {
+    font-size: 12px; color: #718096;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  input[type=range] { width: 100%; accent-color: #3182ce; }
+  select {
+    width: 100%; padding: 6px 8px; border-radius: 6px;
+    border: 1px solid #e2e8f0; font-size: 13px; background: #fff;
+  }
+
+  /* 中间画布区 */
+  .canvas-wrap {
+    flex: 1; display: flex; flex-direction: column; gap: 8px;
+    min-width: 0;
+  }
+  .canvas-card {
+    background: #fff; border-radius: 14px;
+    box-shadow: 0 1px 6px rgba(0,0,0,.08);
+    overflow: hidden; flex: 1; position: relative;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .canvas-card canvas { display: block; cursor: crosshair; }
+  .hint {
+    position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%);
+    font-size: 11px; color: #a0aec0; pointer-events: none;
+    transition: opacity .5s;
+  }
+
+  /* 右侧树可视化 */
+  .right-panel {
+    width: 320px; min-width: 320px;
+    background: #fff; border-radius: 14px;
+    box-shadow: 0 1px 6px rgba(0,0,0,.08);
+    display: flex; flex-direction: column;
+  }
+  .right-panel .panel-header {
+    padding: 12px 16px; border-bottom: 1px solid #e2e8f0;
+    font-weight: 600; font-size: 14px; letter-spacing: 1px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .tree-scroll {
+    flex: 1; overflow: auto; position: relative;
+  }
+  .tree-scroll canvas { display: block; }
+
+  .metrics {
+    padding: 10px 16px; border-top: 1px solid #e2e8f0;
+    display: flex; gap: 12px; flex-wrap: wrap;
+    font-size: 12px;
+  }
+  .metric {
+    background: #f7fafc; padding: 6px 10px; border-radius: 8px;
+    text-align: center;
+  }
+  .metric .val { font-size: 18px; font-weight: 700; color: #2b6cb0; }
+  .metric .lbl { color: #a0aec0; font-size: 10px; }
+
+  /* 响应式 */
+  @media (max-width: 900px) {
+    .main { flex-direction: column; height: auto; }
+    .sidebar { width: 100%; min-width: auto; flex-direction: row; flex-wrap: wrap; }
+    .right-panel { width: 100%; min-width: auto; height: 350px; }
+    .canvas-wrap { height: 50vh; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>🌳 决策树 · 随机森林</h1>
+  <span class="badge" id="badgeModel">决策树</span>
+  <span class="badge" id="badgeData">线性可分</span>
+</div>
+
+<div class="main">
+
+  <!-- 左侧控制 -->
+  <div class="sidebar">
+
+    <div>
+      <div class="section-title">📊 数据集</div>
+      <div class="btn-group" id="btnDataset">
+        <button class="btn active" data-ds="linear">线性</button>
+        <button class="btn" data-ds="moon">月牙</button>
+        <button class="btn" data-ds="circle">环形</button>
+        <button class="btn" data-ds="xor">XOR</button>
+        <button class="btn" data-ds="blob">混合</button>
+      </div>
+      <label class="mini" style="margin-top:6px">
+        <input type="checkbox" id="chkClick" checked> 点击画布添加点（左=蓝 右=红）
+      </label>
+    </div>
+
+    <div>
+      <div class="section-title">🧠 模型</div>
+      <div class="btn-group" id="btnModel">
+        <button class="btn active" data-model="dt">决策树</button>
+        <button class="btn" data-model="rf">随机森林</button>
+      </div>
+    </div>
+
+    <div>
+      <div class="section-title">⚙️ 参数</div>
+      <label class="mini">最大深度 <span id="valDepth">4</span></label>
+      <input type="range" id="maxDepth" min="1" max="10" value="4">
+
+      <label class="mini">最小分裂样本 <span id="valSplit">3</span></label>
+      <input type="range" id="minSplit" min="2" max="30" value="3">
+
+      <label class="mini" id="lblCriterion">分裂标准</label>
+      <select id="criterion">
+        <option value="gini">Gini 不纯度</option>
+        <option value="entropy">信息熵 (Entropy)</option>
+      </select>
+
+      <div id="rfParams" style="display:none">
+        <label class="mini">树的数量 <span id="valTrees">10</span></label>
+        <input type="range" id="nTrees" min="3" max="50" value="10">
+        <label class="mini">采样比例 <span id="valSample">0.7</span></label>
+        <input type="range" id="sampleRatio" min="0.3" max="1.0" step="0.05" value="0.7">
+      </div>
+    </div>
+
+    <div>
+      <div class="section-title">🎬 操作</div>
+      <div class="btn-group">
+        <button class="btn accent" id="btnTrain">训练模型</button>
+        <button class="btn" id="btnStep">逐步生长</button>
+        <button class="btn warn" id="btnClear">清空数据</button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- 中间画布 -->
+  <div class="canvas-wrap">
+    <div class="canvas-card" id="mainCard">
+      <canvas id="mainCanvas"></canvas>
+      <div class="hint" id="hint">💡 点击画布添加数据点 · 左键蓝色类 / 右键红色类</div>
+    </div>
+  </div>
+
+  <!-- 右侧树结构 -->
+  <div class="right-panel">
+    <div class="panel-header">🌲 <span id="treeTitle">决策树结构</span><span id="treeNav" style="display:none;margin-left:auto;gap:4px;align-items:center;"><button class="btn" id="btnPrevTree" style="padding:3px 8px;font-size:11px;">◀</button><span id="treeIdx" style="font-size:12px;color:#718096;margin:0 4px;">1/10</span><button class="btn" id="btnNextTree" style="padding:3px 8px;font-size:11px;">▶</button></span></div>
+    <div class="tree-scroll" id="treeScroll">
+      <canvas id="treeCanvas"></canvas>
+    </div>
+    <div class="metrics" id="metrics"></div>
+  </div>
+
+</div>
+
+<script>
+// ==================== 工具函数 ====================
+function giniImpurity(y) {
+  const counts = {};
+  for (const v of y) counts[v] = (counts[v] || 0) + 1;
+  let imp = 1;
+  const n = y.length;
+  for (const c in counts) imp -= (counts[c] / n) ** 2;
+  return imp;
+}
+function entropyImp(y) {
+  const counts = {};
+  for (const v of y) counts[v] = (counts[v] || 0) + 1;
+  let imp = 0;
+  const n = y.length;
+  for (const c in counts) {
+    const p = counts[c] / n;
+    if (p > 0) imp -= p * Math.log2(p);
+  }
+  return imp;
+}
+function majority(y) {
+  const counts = {};
+  for (const v of y) counts[v] = (counts[v] || 0) + 1;
+  let best = null, bestC = -1;
+  for (const c in counts) { if (counts[c] > bestC) { bestC = counts[c]; best = Number(c); } }
+  return best;
+}
+function sampleWithReplacement(X, y, ratio) {
+  const n = X.length, m = Math.floor(n * ratio);
+  const Xs = [], ys = [];
+  for (let i = 0; i < m; i++) {
+    const idx = Math.floor(Math.random() * n);
+    Xs.push(X[idx]); ys.push(y[idx]);
+  }
+  return { X: Xs, y: ys };
+}
+
+// ==================== 决策树节点 ====================
+class TreeNode {
+  constructor() {
+    this.feature = null;    // 分裂特征索引
+    this.threshold = null;  // 分裂阈值
+    this.left = null;
+    this.right = null;
+    this.value = null;      // 叶子节点预测值
+    this.gini = 0;
+    this.samples = 0;
+    this.classDist = {};    // 类别分布
+  }
+  get isLeaf() { return this.left === null && this.right === null; }
+}
+
+// ==================== 决策树 ====================
+class DecisionTree {
+  constructor(maxDepth = 5, minSamplesSplit = 2, criterion = 'gini') {
+    this.maxDepth = maxDepth;
+    this.minSamplesSplit = minSamplesSplit;
+    this.criterion = criterion;
+    this.root = null;
+  }
+
+  _impurity(y) {
+    return this.criterion === 'gini' ? giniImpurity(y) : entropyImp(y);
+  }
+
+  _bestSplit(X, y) {
+    const n = X.length;
+    if (n === 0) return null;
+    const nFeat = X[0].length;
+    const parentImp = this._impurity(y);
+    let bestGain = -1;
+    let bestFeat = null, bestThresh = null;
+
+    for (let f = 0; f < nFeat; f++) {
+      const vals = [...new Set(X.map(r => r[f]))].sort((a, b) => a - b);
+      for (let i = 0; i < vals.length - 1; i++) {
+        const thresh = (vals[i] + vals[i + 1]) / 2;
+        const leftY = [], rightY = [];
+        for (let j = 0; j < n; j++) {
+          if (X[j][f] <= thresh) leftY.push(y[j]);
+          else rightY.push(y[j]);
+        }
+        if (leftY.length === 0 || rightY.length === 0) continue;
+        const imp = (leftY.length / n) * this._impurity(leftY) +
+                    (rightY.length / n) * this._impurity(rightY);
+        const gain = parentImp - imp;
+        if (gain > bestGain) {
+          bestGain = gain; bestFeat = f; bestThresh = thresh;
+        }
+      }
+    }
+    return bestFeat !== null ? { feature: bestFeat, threshold: bestThresh, gain: bestGain } : null;
+  }
+
+  _build(X, y, depth) {
+    const node = new TreeNode();
+    node.samples = y.length;
+    node.gini = giniImpurity(y);
+    for (const v of y) node.classDist[v] = (node.classDist[v] || 0) + 1;
+
+    // 停止条件：纯节点 / 深度达上限 / 样本不足 / 所有X相同
+    if (new Set(y).size === 1 || depth >= this.maxDepth ||
+        y.length < this.minSamplesSplit) {
+      node.value = majority(y);
+      return node;
+    }
+    const allSame = X.every(r => r[0] === X[0][0] && r[1] === X[0][1]);
+    if (allSame) { node.value = majority(y); return node; }
+
+    const split = this._bestSplit(X, y);
+    if (!split || split.gain < 1e-7) {
+      node.value = majority(y);
+      return node;
+    }
+
+    node.feature = split.feature;
+    node.threshold = split.threshold;
+
+    const leftX = [], leftY = [], rightX = [], rightY = [];
+    for (let j = 0; j < X.length; j++) {
+      if (X[j][node.feature] <= node.threshold) {
+        leftX.push(X[j]); leftY.push(y[j]);
+      } else {
+        rightX.push(X[j]); rightY.push(y[j]);
+      }
+    }
+
+    node.left = this._build(leftX, leftY, depth + 1);
+    node.right = this._build(rightX, rightY, depth + 1);
+    return node;
+  }
+
+  fit(X, y) {
+    this.root = this._build(X, y, 0);
+  }
+
+  _predictOne(node, x) {
+    if (node.isLeaf) return node.value;
+    if (x[node.feature] <= node.threshold) return this._predictOne(node.left, x);
+    return this._predictOne(node.right, x);
+  }
+
+  predict(x) { return this._predictOne(this.root, x); }
+
+  predictAll(X) { return X.map(x => this.predict(x)); }
+
+  nodeCount(node) {
+    if (!node) return 0;
+    return 1 + this.nodeCount(node.left) + this.nodeCount(node.right);
+  }
+  depthOf(node) {
+    if (!node) return 0;
+    return 1 + Math.max(this.depthOf(node.left), this.depthOf(node.right));
+  }
+}
+
+// ==================== 随机森林 ====================
+class RandomForest {
+  constructor(nTrees = 10, maxDepth = 5, minSamplesSplit = 2,
+              criterion = 'gini', sampleRatio = 0.7) {
+    this.nTrees = nTrees;
+    this.maxDepth = maxDepth;
+    this.minSamplesSplit = minSamplesSplit;
+    this.criterion = criterion;
+    this.sampleRatio = sampleRatio;
+    this.trees = [];
+    this.oobScores = [];
+  }
+
+  fit(X, y) {
+    this.trees = [];
+    for (let i = 0; i < this.nTrees; i++) {
+      const { X: bX, y: bY } = sampleWithReplacement(X, y, this.sampleRatio);
+      const tree = new DecisionTree(this.maxDepth, this.minSamplesSplit, this.criterion);
+      tree.fit(bX, bY);
+      this.trees.push(tree);
+    }
+  }
+
+  predict(x) {
+    const votes = {};
+    for (const tree of this.trees) {
+      const v = tree.predict(x);
+      votes[v] = (votes[v] || 0) + 1;
+    }
+    let best = null, bestC = -1;
+    for (const c in votes) { if (votes[c] > bestC) { bestC = votes[c]; best = Number(c); } }
+    return best;
+  }
+
+  predictAll(X) { return X.map(x => this.predict(x)); }
+
+  predictProba(x) {
+    const votes = {};
+    for (const tree of this.trees) {
+      const v = tree.predict(x);
+      votes[v] = (votes[v] || 0) + 1;
+    }
+    const total = this.trees.length;
+    const result = {};
+    for (const c in votes) result[c] = votes[c] / total;
+    return result;
+  }
+
+  featureImportance(nSamples = 200) {
+    // 简化版：基于各树根节点分裂特征的统计
+    const imp = [0, 0];
+    for (const tree of this.trees) {
+      if (tree.root && !tree.root.isLeaf) {
+        imp[tree.root.feature] = (imp[tree.root.feature] || 0) + 1;
+      }
+    }
+    const total = imp[0] + imp[1] || 1;
+    return [imp[0] / total, imp[1] / total];
+  }
+}
+
+// ==================== 数据生成 ====================
+function genLinear(n = 80) {
+  const X = [], y = [];
+  for (let i = 0; i < n; i++) {
+    if (i < n / 2) {
+      X.push([Math.random() * 3 + 1, Math.random() * 3 + 1]);
+      y.push(0);
+    } else {
+      X.push([Math.random() * 3 + 4, Math.random() * 3 + 4]);
+      y.push(1);
+    }
+  }
+  return { X, y };
+}
+function genMoon(n = 80) {
+  const X = [], y = [];
+  for (let i = 0; i < n; i++) {
+    if (i < n / 2) {
+      const t = Math.random() * Math.PI;
+      X.push([Math.cos(t) * 2 + 2, Math.sin(t) * 2 + 4]);
+      y.push(0);
+    } else {
+      const t = Math.random() * Math.PI;
+      X.push([1 - Math.cos(t) * 2 + 3.5, 1 - Math.sin(t) * 2 + 4]);
+      y.push(1);
+    }
+  }
+  return { X, y };
+}
+function genCircle(n = 80) {
+  const X = [], y = [];
+  for (let i = 0; i < n; i++) {
+    if (i < n / 2) {
+      const r = Math.random() * 1.5;
+      const a = Math.random() * Math.PI * 2;
+      X.push([r * Math.cos(a) + 4, r * Math.sin(a) + 3]);
+      y.push(0);
+    } else {
+      const r = Math.random() * 1.5 + 2;
+      const a = Math.random() * Math.PI * 2;
+      X.push([r * Math.cos(a) + 4, r * Math.sin(a) + 3]);
+      y.push(1);
+    }
+  }
+  return { X, y };
+}
+function genXor(n = 80) {
+  const X = [], y = [];
+  const centers = [[2, 2, 0], [5, 5, 0], [2, 5, 1], [5, 2, 1]];
+  for (let c of centers) {
+    for (let i = 0; i < n / 4; i++) {
+      X.push([c[0] + (Math.random() - .5) * 1.5, c[1] + (Math.random() - .5) * 1.5]);
+      y.push(c[2]);
+    }
+  }
+  return { X, y };
+}
+function genBlob(n = 80) {
+  const X = [], y = [];
+  const centers = [[2, 3, 0], [4, 3.5, 0], [3, 2, 0], [5.5, 2.5, 1], [6, 5, 1], [4, 5, 1]];
+  for (let c of centers) {
+    for (let i = 0; i < n / 6; i++) {
+      X.push([c[0] + (Math.random() - .5) * 1.6, c[1] + (Math.random() - .5) * 1.6]);
+      y.push(c[2]);
+    }
+  }
+  return { X, y };
+}
+const generators = { linear: genLinear, moon: genMoon, circle: genCircle, xor: genXor, blob: genBlob };
+
+// ==================== 全局状态 ====================
+let dataX = [], dataY = [];
+let model = null;        // DecisionTree or RandomForest
+let modelType = 'dt';     // 'dt' or 'rf'
+let datasetName = 'linear';
+let criterion = 'gini';
+let maxDepth = 4, minSplit = 3, nTrees = 10, sampleRatio = 0.7;
+let stepNode = null;      // 逐步模式
+let stepStack = [];       // DFS stack
+let rfTreeIdx = 0;        // 随机森林当前显示的树索引
+
+// ==================== DOM ====================
+const mainCanvas = document.getElementById('mainCanvas');
+const mainCtx = mainCanvas.getContext('2d', { alpha: false });
+const treeCanvas = document.getElementById('treeCanvas');
+const treeCtx = treeCanvas.getContext('2d', { alpha: false });
+const treeScroll = document.getElementById('treeScroll');
+
+// ==================== 主画布绘制 ====================
+const PAD = 40;
+
+function getBounds() {
+  if (dataX.length === 0) return { xMin: 0, xMax: 8, yMin: 0, yMax: 7 };
+  const xs = dataX.map(p => p[0]), ys = dataX.map(p => p[1]);
+  return {
+    xMin: Math.min(...xs) - 0.6, xMax: Math.max(...xs) + 0.6,
+    yMin: Math.min(...ys) - 0.6, yMax: Math.max(...ys) + 0.6
+  };
+}
+
+function drawMain() {
+  const rect = mainCanvas.parentElement.getBoundingClientRect();
+  const W = Math.floor(rect.width - 4), H = Math.floor(rect.height - 4);
+  if (W <= 0 || H <= 0) return;
+  mainCanvas.width = W;
+  mainCanvas.height = H;
+  mainCanvas.style.width = W + 'px';
+  mainCanvas.style.height = H + 'px';
+
+  mainCtx.fillStyle = '#fafcfd';
+  mainCtx.fillRect(0, 0, W, H);
+
+  const plotW = W - PAD * 2, plotH = H - PAD * 2;
+  const { xMin, xMax, yMin, yMax } = getBounds();
+
+  // 决策边界 — 用 fillRect 逐格绘制，高效且无像素缝隙
+  if (model && dataX.length > 0) {
+    const gridW = Math.min(120, plotW);
+    const gridH = Math.min(120, plotH);
+    const cellW = plotW / gridW, cellH = plotH / gridH;
+    const scaleX = (xMax - xMin) / gridW;
+    const scaleY = (yMax - yMin) / gridH;
+
+    // 批量构造测试点
+    const testPts = [];
+    for (let gy = 0; gy < gridH; gy++) {
+      for (let gx = 0; gx < gridW; gx++) {
+        testPts.push([xMin + (gx + 0.5) * scaleX, yMin + (gy + 0.5) * scaleY]);
+      }
+    }
+    const preds = model.predictAll(testPts);
+
+    for (let gy = 0; gy < gridH; gy++) {
+      for (let gx = 0; gx < gridW; gx++) {
+        const pred = preds[gy * gridW + gx];
+        mainCtx.fillStyle = pred === 0 ? 'rgba(66,153,225,0.18)' : 'rgba(229,62,62,0.18)';
+        mainCtx.fillRect(PAD + gx * cellW, PAD + gy * cellH, Math.ceil(cellW), Math.ceil(cellH));
+      }
+    }
+  }
+
+  // 坐标轴
+  mainCtx.strokeStyle = '#e2e8f0';
+  mainCtx.lineWidth = 1;
+  mainCtx.beginPath();
+  mainCtx.moveTo(PAD, PAD); mainCtx.lineTo(PAD, H - PAD);
+  mainCtx.lineTo(W - PAD, H - PAD);
+  mainCtx.stroke();
+
+  // 数据点
+  for (let i = 0; i < dataX.length; i++) {
+    const px = PAD + ((dataX[i][0] - xMin) / (xMax - xMin || 1)) * plotW;
+    const py = PAD + ((dataY[i] - yMin) / (yMax - yMin || 1)) * plotH;
+    mainCtx.beginPath();
+    mainCtx.arc(px, py, 6, 0, Math.PI * 2);
+    mainCtx.fillStyle = dataY[i] === 0 ? '#4299e1' : '#e53e3e';
+    mainCtx.fill();
+    mainCtx.strokeStyle = '#fff';
+    mainCtx.lineWidth = 2;
+    mainCtx.stroke();
+  }
+}
+
+// ==================== 树结构绘制 ====================
+function measureTree(node, depth) {
+  if (!node) return { w: 0, h: 0 };
+  const left = measureTree(node.left, depth + 1);
+  const right = measureTree(node.right, depth + 1);
+  const childrenW = left.w + right.w;
+  // 节点自身宽度（根据文字）
+  let w;
+  if (node.isLeaf) {
+    w = 80;
+  } else {
+    w = Math.max(110, childrenW);
+  }
+  const h = 70 + Math.max(left.h, right.h);
+  return { w, h };
+}
+
+function drawTreeNode(node, cx, y, availW, depth) {
+  if (!node) return;
+
+  const nodeW = Math.min(availW - 16, node.isLeaf ? 80 : 120);
+  const nodeH = 46;
+  const x = cx - nodeW / 2;
+
+  // 节点背景
+  treeCtx.fillStyle = node.isLeaf ? '#f0fff4' : '#ebf8ff';
+  treeCtx.strokeStyle = node.isLeaf ? '#48bb78' : '#4299e1';
+  treeCtx.lineWidth = 2;
+  treeCtx.beginPath();
+  roundRect(treeCtx, x, y, nodeW, nodeH, 10);
+  treeCtx.fill();
+  treeCtx.stroke();
+
+  // 文字
+  treeCtx.fillStyle = '#2d3748';
+  treeCtx.font = 'bold 11px "Segoe UI","PingFang SC",sans-serif';
+  if (node.isLeaf) {
+    treeCtx.fillText(`类别 ${node.value}`, x + 8, y + 18);
+    treeCtx.fillStyle = '#718096';
+    treeCtx.font = '10px "Segoe UI","PingFang SC",sans-serif';
+    treeCtx.fillText(`样本:${node.samples} | Gini:${node.gini.toFixed(3)}`, x + 8, y + 35);
+  } else {
+    treeCtx.fillText(`X${node.feature+1} ≤ ${node.threshold.toFixed(2)}`, x + 8, y + 18);
+    treeCtx.fillStyle = '#718096';
+    treeCtx.font = '10px "Segoe UI","PingFang SC",sans-serif';
+    const critName = criterion === 'gini' ? 'Gini' : 'Ent';
+    treeCtx.fillText(`${critName}:${node.gini.toFixed(3)} | n=${node.samples}`, x + 8, y + 35);
+  }
+
+  if (!node.isLeaf && node.left && node.right) {
+    const childY = y + nodeH + 24;
+    const leftW = availW * 0.5;
+    const rightW = availW * 0.5;
+    const leftCX = cx - availW * 0.25;
+    const rightCX = cx + availW * 0.25;
+
+    // 连线
+    treeCtx.strokeStyle = '#cbd5e0';
+    treeCtx.lineWidth = 1.5;
+    treeCtx.beginPath();
+    treeCtx.moveTo(cx, y + nodeH);
+    treeCtx.lineTo(leftCX, childY);
+    treeCtx.moveTo(cx, y + nodeH);
+    treeCtx.lineTo(rightCX, childY);
+    treeCtx.stroke();
+
+    // 分裂标签
+    treeCtx.fillStyle = '#a0aec0';
+    treeCtx.font = '9px "Segoe UI","PingFang SC",sans-serif';
+    treeCtx.fillText('≤ 是', cx + (leftCX - cx) * 0.1, y + nodeH + 16);
+    treeCtx.fillText('否 →', cx + (rightCX - cx) * 0.35, y + nodeH + 16);
+
+    drawTreeNode(node.left, leftCX, childY, leftW, depth + 1);
+    drawTreeNode(node.right, rightCX, childY, rightW, depth + 1);
+  }
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+function drawTree() {
+  const containerW = treeScroll.clientWidth - 8;
+  let totalW = 600;
+  let totalH = 400;
+  let rootNode = null;
+
+  if (model && modelType === 'dt' && model.root) {
+    rootNode = model.root;
+  } else if (model && modelType === 'rf' && model.trees.length > 0) {
+    const idx = Math.min(rfTreeIdx, model.trees.length - 1);
+    rootNode = model.trees[idx].root;
+  }
+
+  if (rootNode) {
+    const m = measureTree(rootNode, 1);
+    totalW = Math.max(containerW, m.w + 40);
+    totalH = Math.max(350, m.h + 40);
+  }
+
+  treeCanvas.width = totalW;
+  treeCanvas.height = totalH;
+  treeCanvas.style.width = totalW + 'px';
+  treeCanvas.style.height = totalH + 'px';
+
+  treeCtx.fillStyle = '#ffffff';
+  treeCtx.fillRect(0, 0, totalW, totalH);
+
+  if (rootNode) {
+    drawTreeNode(rootNode, totalW / 2, 10, totalW - 40, 0);
+  } else {
+    treeCtx.fillStyle = '#e2e8f0';
+    treeCtx.font = '15px "Segoe UI","PingFang SC",sans-serif';
+    treeCtx.textAlign = 'center';
+    treeCtx.fillText('点击「训练模型」查看树结构', totalW / 2, totalH / 2);
+    treeCtx.textAlign = 'start';
+  }
+
+  // 更新标题与导航
+  updateTreeUI();
+}
+
+function updateTreeUI() {
+  const nav = document.getElementById('treeNav');
+  const title = document.getElementById('treeTitle');
+  const idx = document.getElementById('treeIdx');
+
+  if (modelType === 'rf' && model && model.trees.length > 0) {
+    nav.style.display = 'flex';
+    rfTreeIdx = Math.min(rfTreeIdx, model.trees.length - 1);
+    idx.textContent = `${rfTreeIdx + 1}/${model.trees.length}`;
+    title.textContent = `随机森林 · 树 ${rfTreeIdx + 1}`;
+  } else {
+    nav.style.display = 'none';
+    title.textContent = modelType === 'rf' ? '随机森林（未训练）' : '决策树结构';
+  }
+}
+
+// ==================== 训练 ====================
+function train() {
+  if (dataX.length === 0) return;
+  rfTreeIdx = 0;
+  if (modelType === 'dt') {
+    model = new DecisionTree(maxDepth, minSplit, criterion);
+    model.fit(dataX, dataY);
+  } else {
+    model = new RandomForest(nTrees, maxDepth, minSplit, criterion, sampleRatio);
+    model.fit(dataX, dataY);
+  }
+  stepNode = null;
+  stepStack = [];
+  updateMetrics();
+  drawMain();
+  drawTree();
+}
+
+function stepGrow() {
+  if (dataX.length === 0) return;
+
+  // 切换到决策树模式（逐步仅支持 DT）
+  if (modelType !== 'dt') {
+    modelType = 'dt';
+    document.querySelector('#btnModel [data-model="dt"]').classList.add('active');
+    document.querySelector('#btnModel [data-model="rf"]').classList.remove('active');
+    document.getElementById('badgeModel').textContent = '决策树';
+    document.getElementById('rfParams').style.display = 'none';
+  }
+
+  // 首次或重置时初始化
+  if (!model || modelType !== 'dt' || stepStack.length === 0) {
+    model = new DecisionTree(maxDepth, minSplit, criterion);
+    stepStack = [{ X: dataX, y: dataY, depth: 0, parent: null, side: '' }];
+    model.root = null;
+  }
+
+  if (stepStack.length === 0) return;
+
+  const task = stepStack.shift();
+  const { X, y, depth, parent, side } = task;
+
+  const node = new TreeNode();
+  node.samples = y.length;
+  node.gini = giniImpurity(y);
+  for (const v of y) node.classDist[v] = (node.classDist[v] || 0) + 1;
+
+  const allSame = X.every(r => r[0] === X[0][0] && r[1] === X[0][1]);
+  if (new Set(y).size === 1 || depth >= maxDepth || y.length < minSplit || allSame) {
+    node.value = majority(y);
+  } else {
+    const tree = new DecisionTree(maxDepth, minSplit, criterion);
+    const split = tree._bestSplit(X, y);
+    if (!split || split.gain < 1e-7) {
+      node.value = majority(y);
+    } else {
+      node.feature = split.feature;
+      node.threshold = split.threshold;
+      const leftX = [], leftY = [], rightX = [], rightY = [];
+      for (let j = 0; j < X.length; j++) {
+        if (X[j][node.feature] <= node.threshold) {
+          leftX.push(X[j]); leftY.push(y[j]);
+        } else {
+          rightX.push(X[j]); rightY.push(y[j]);
+        }
+      }
+      stepStack.unshift(
+        { X: rightX, y: rightY, depth: depth + 1, parent: node, side: 'right' },
+        { X: leftX, y: leftY, depth: depth + 1, parent: node, side: 'left' }
+      );
+    }
+  }
+
+  if (parent) {
+    if (side === 'left') parent.left = node;
+    else parent.right = node;
+  } else {
+    model.root = node;
+  }
+
+  updateMetrics();
+  drawMain();
+  drawTree();
+}
+
+function updateMetrics() {
+  const el = document.getElementById('metrics');
+  if (!model || (modelType === 'dt' && !model.root) || (modelType === 'rf' && model.trees.length === 0)) {
+    el.innerHTML = '<span style="color:#a0aec0">训练后显示指标</span>';
+    return;
+  }
+
+  // 准确率
+  let correct = 0;
+  const preds = modelType === 'dt' ? model.predictAll(dataX) : model.predictAll(dataX);
+  for (let i = 0; i < dataY.length; i++) { if (preds[i] === dataY[i]) correct++; }
+  const acc = (correct / dataY.length * 100).toFixed(1);
+
+  let treeInfo = '';
+  if (modelType === 'dt') {
+    const nodes = model.nodeCount(model.root);
+    const depth = model.depthOf(model.root);
+    treeInfo = `<div class="metric"><div class="val">${nodes}</div><div class="lbl">节点数</div></div>
+                <div class="metric"><div class="val">${depth}</div><div class="lbl">树深度</div></div>`;
+  } else {
+    const avgDepth = model.trees.reduce((s, t) => s + t.depthOf(t.root), 0) / model.trees.length;
+    treeInfo = `<div class="metric"><div class="val">${model.nTrees}</div><div class="lbl">树的数量</div></div>
+                <div class="metric"><div class="val">${avgDepth.toFixed(1)}</div><div class="lbl">平均深度</div></div>`;
+  }
+
+  el.innerHTML = `
+    <div class="metric"><div class="val">${acc}%</div><div class="lbl">训练准确率</div></div>
+    ${treeInfo}
+    <div class="metric"><div class="val">${dataX.length}</div><div class="lbl">样本数</div></div>
+    <div class="metric"><div class="val">${criterion === 'gini' ? 'Gini' : '熵'}</div><div class="lbl">分裂标准</div></div>
+  `;
+}
+
+// ==================== 事件处理 ====================
+function loadDataset(name) {
+  datasetName = name;
+  const gen = generators[name];
+  const data = gen(80);
+  dataX = data.X; dataY = data.y;
+  document.getElementById('badgeData').textContent =
+    { linear: '线性可分', moon: '月牙形', circle: '环形', xor: 'XOR', blob: '混合' }[name];
+  model = null; stepStack = [];
+  drawMain(); drawTree(); updateMetrics();
+}
+
+// 数据集按钮
+document.getElementById('btnDataset').addEventListener('click', (e) => {
+  const btn = e.target.closest('button');
+  if (!btn) return;
+  document.querySelectorAll('#btnDataset button').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  loadDataset(btn.dataset.ds);
+});
+
+// 模型切换
+document.getElementById('btnModel').addEventListener('click', (e) => {
+  const btn = e.target.closest('button');
+  if (!btn) return;
+  document.querySelectorAll('#btnModel button').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  modelType = btn.dataset.model;
+  rfTreeIdx = 0;
+  document.getElementById('badgeModel').textContent = modelType === 'dt' ? '决策树' : '随机森林';
+  document.getElementById('rfParams').style.display = modelType === 'rf' ? '' : 'none';
+  drawMain(); drawTree(); updateMetrics();
+});
+
+// 参数控件
+document.getElementById('maxDepth').addEventListener('input', function() {
+  maxDepth = parseInt(this.value);
+  document.getElementById('valDepth').textContent = maxDepth;
+});
+document.getElementById('minSplit').addEventListener('input', function() {
+  minSplit = parseInt(this.value);
+  document.getElementById('valSplit').textContent = minSplit;
+});
+document.getElementById('criterion').addEventListener('change', function() {
+  criterion = this.value;
+});
+document.getElementById('nTrees').addEventListener('input', function() {
+  nTrees = parseInt(this.value);
+  document.getElementById('valTrees').textContent = nTrees;
+});
+document.getElementById('sampleRatio').addEventListener('input', function() {
+  sampleRatio = parseFloat(this.value);
+  document.getElementById('valSample').textContent = sampleRatio.toFixed(2);
+});
+
+// 按钮
+document.getElementById('btnTrain').addEventListener('click', () => { rfTreeIdx = 0; train(); });
+document.getElementById('btnStep').addEventListener('click', stepGrow);
+document.getElementById('btnClear').addEventListener('click', () => {
+  dataX = []; dataY = []; model = null; stepStack = []; rfTreeIdx = 0;
+  drawMain(); drawTree(); updateMetrics();
+});
+
+// 随机森林树导航
+document.getElementById('btnPrevTree').addEventListener('click', () => {
+  if (model && modelType === 'rf' && model.trees.length > 0) {
+    rfTreeIdx = (rfTreeIdx - 1 + model.trees.length) % model.trees.length;
+    drawTree();
+  }
+});
+document.getElementById('btnNextTree').addEventListener('click', () => {
+  if (model && modelType === 'rf' && model.trees.length > 0) {
+    rfTreeIdx = (rfTreeIdx + 1) % model.trees.length;
+    drawTree();
+  }
+});
+
+// 画布点击添加点
+mainCanvas.addEventListener('contextmenu', e => e.preventDefault());
+mainCanvas.addEventListener('mousedown', e => {
+  if (!document.getElementById('chkClick').checked) return;
+  e.preventDefault();
+  const rect = mainCanvas.getBoundingClientRect();
+  const W = rect.width - 4, H = rect.height - 4;
+  const plotW = W - PAD * 2, plotH = H - PAD * 2;
+
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+
+  // 需要在坐标范围内
+  if (mx < PAD || mx > W - PAD || my < PAD || my > H - PAD) return;
+
+  // 映射到数据空间
+  let xMin, xMax, yMin, yMax;
+  if (dataX.length === 0) {
+    xMin = 0; xMax = 8; yMin = 0; yMax = 7;
+  } else {
+    const xs = dataX.map(p => p[0]), ys = dataX.map(p => p[1]);
+    xMin = Math.min(...xs) - 0.6; xMax = Math.max(...xs) + 0.6;
+    yMin = Math.min(...ys) - 0.6; yMax = Math.max(...ys) + 0.6;
+  }
+
+  const dx = xMin + ((mx - PAD) / plotW) * (xMax - xMin);
+  const dy = yMin + ((my - PAD) / plotH) * (yMax - yMin);
+
+  const label = (e.button === 2 || e.shiftKey) ? 1 : 0;
+  dataX.push([dx, dy]);
+  dataY.push(label);
+  model = null; stepStack = [];
+  drawMain(); drawTree(); updateMetrics();
+});
+
+// 触摸事件
+mainCanvas.addEventListener('touchstart', e => {
+  if (!document.getElementById('chkClick').checked) return;
+  if (e.touches.length === 1) {
+    e.preventDefault();
+    const touch = e.touches[0];
+    const rect = mainCanvas.getBoundingClientRect();
+    const W = rect.width - 4, H = rect.height - 4;
+    const plotW = W - PAD * 2, plotH = H - PAD * 2;
+    const mx = touch.clientX - rect.left;
+    const my = touch.clientY - rect.top;
+    if (mx < PAD || mx > W - PAD || my < PAD || my > H - PAD) return;
+
+    let xMin, xMax, yMin, yMax;
+    if (dataX.length === 0) {
+      xMin = 0; xMax = 8; yMin = 0; yMax = 7;
+    } else {
+      const xs = dataX.map(p => p[0]), ys = dataX.map(p => p[1]);
+      xMin = Math.min(...xs) - 0.6; xMax = Math.max(...xs) + 0.6;
+      yMin = Math.min(...ys) - 0.6; yMax = Math.max(...ys) + 0.6;
+    }
+    const dx = xMin + ((mx - PAD) / plotW) * (xMax - xMin);
+    const dy = yMin + ((my - PAD) / plotH) * (yMax - yMin);
+    const label = 0; // 手机触摸默认蓝类
+    dataX.push([dx, dy]);
+    dataY.push(label);
+    model = null; stepStack = [];
+    drawMain(); drawTree(); updateMetrics();
+  }
+}, { passive: false });
+
+// 窗口缩放
+window.addEventListener('resize', () => { drawMain(); drawTree(); });
+
+// ==================== 初始化 ====================
+loadDataset('linear');
+train();
+</script>
+</body>
+</html>
