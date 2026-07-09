@@ -1024,7 +1024,9 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 // ═══════════════════════════════════════════
 //  PDF → WORD
 // ═══════════════════════════════════════════
-pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+if (typeof pdfjsLib !== 'undefined') {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+}
 
 let pdfPages = [];
 let pdfDoc = null;
@@ -1088,6 +1090,13 @@ async function convertToWord() {
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner"></span> 转换中...';
   setProgress(10);
+
+  if (typeof docx === 'undefined') {
+    toast('❌ Word组件加载失败，请刷新页面重试');
+    btn.disabled = false;
+    btn.innerHTML = '📝 转为 Word 文档';
+    return;
+  }
 
   try {
     const { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType } = docx;
