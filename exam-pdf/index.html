@@ -1,0 +1,947 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>试卷扫描 — 照片转PDF</title>
+<meta name="description" content="把试卷、文档照片一键转为高清PDF，支持文档增强、多页排序，打印即用">
+<meta name="theme-color" content="#4f46e5">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="试卷PDF">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect fill='%234f46e5' width='100' height='100' rx='20'/><text x='50' y='68' text-anchor='middle' fill='white' font-size='48' font-family='sans-serif'>📄</text></svg>">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#f8fafc;--surface:#fff;--border:#e2e8f0;--text:#0f172a;--text2:#64748b;
+  --primary:#4f46e5;--primary-light:#eef2ff;--danger:#ef4444;--danger-light:#fef2f2;
+  --shadow:0 1px 3px rgba(0,0,0,.08),0 1px 2px rgba(0,0,0,.06);
+  --shadow-lg:0 10px 25px rgba(0,0,0,.1),0 4px 10px rgba(0,0,0,.06);
+  --radius:16px;--radius-sm:10px;--radius-xs:8px;
+  --safe-bottom:env(safe-area-inset-bottom, 20px);
+}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
+  background:var(--bg);color:var(--text);min-height:100dvh;
+  display:flex;flex-direction:column;overflow-x:hidden;
+  -webkit-tap-highlight-color:transparent;
+  user-select:none;-webkit-user-select:none;
+}
+
+/* ── Header ── */
+.header{
+  position:sticky;top:0;z-index:100;background:var(--surface);
+  padding:12px 16px;display:flex;align-items:center;justify-content:space-between;
+  border-bottom:1px solid var(--border);
+  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+  background:rgba(255,255,255,.85);
+}
+.header h1{font-size:20px;font-weight:700;letter-spacing:-0.3px}
+.header .badge{
+  background:var(--primary-light);color:var(--primary);
+  font-size:12px;font-weight:600;padding:4px 10px;border-radius:20px;
+}
+
+/* ── Main area ── */
+.main{
+  flex:1;padding:12px 12px calc(80px + var(--safe-bottom));overflow-y:auto;
+  display:flex;flex-direction:column;gap:10px;
+}
+
+/* ── Empty state ── */
+.empty-state{
+  flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  text-align:center;padding:40px 20px;gap:16px;
+}
+.empty-state .icon{font-size:64px;opacity:.6}
+.empty-state h2{font-size:18px;font-weight:600;color:var(--text)}
+.empty-state p{font-size:14px;color:var(--text2);line-height:1.5;max-width:260px}
+.empty-state .tips{
+  display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:4px;
+}
+.empty-state .tips span{
+  font-size:12px;color:var(--text2);background:var(--surface);
+  padding:6px 12px;border-radius:20px;border:1px solid var(--border);
+}
+
+/* ── Thumbnail grid ── */
+.thumb-grid{
+  display:grid;grid-template-columns:repeat(2,1fr);gap:10px;padding:4px 0;
+}
+.thumb-card{
+  position:relative;background:var(--surface);border-radius:var(--radius-sm);
+  overflow:hidden;aspect-ratio:0.75;box-shadow:var(--shadow);
+  border:2px solid transparent;transition:transform .2s,border-color .2s,box-shadow .2s;
+  cursor:default;
+}
+.thumb-card.dragging{
+  z-index:50;transform:scale(1.05);box-shadow:var(--shadow-lg);
+  border-color:var(--primary);opacity:.9;
+}
+.thumb-card.drag-over{border-color:var(--primary);border-style:dashed}
+.thumb-card img{
+  width:100%;height:100%;object-fit:cover;display:block;pointer-events:none;
+}
+.thumb-card .card-actions{
+  position:absolute;top:4px;right:4px;display:flex;gap:4px;opacity:0;
+  transition:opacity .15s;
+}
+.thumb-card:hover .card-actions,
+.thumb-card:active .card-actions,
+.thumb-card.touch-active .card-actions{opacity:1}
+.card-btn{
+  width:30px;height:30px;border-radius:50%;border:none;background:rgba(0,0,0,.55);
+  color:#fff;font-size:14px;display:flex;align-items:center;justify-content:center;
+  cursor:pointer;backdrop-filter:blur(4px);transition:background .15s;
+}
+.card-btn:active{background:rgba(0,0,0,.75)}
+.card-btn.del{background:rgba(239,68,68,.75)}
+.card-btn.del:active{background:var(--danger)}
+
+.thumb-card .page-num{
+  position:absolute;bottom:6px;left:6px;background:rgba(0,0,0,.55);
+  color:#fff;font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px;
+  backdrop-filter:blur(4px);
+}
+.thumb-card .drag-handle{
+  position:absolute;bottom:6px;right:6px;width:28px;height:28px;
+  border-radius:50%;background:rgba(0,0,0,.45);color:#fff;
+  font-size:16px;display:flex;align-items:center;justify-content:center;
+  cursor:grab;backdrop-filter:blur(4px);
+}
+.thumb-card .enhance-badge{
+  position:absolute;top:4px;left:4px;background:rgba(79,70,229,.8);
+  color:#fff;font-size:10px;font-weight:600;padding:2px 7px;border-radius:8px;
+}
+
+/* ── Bottom toolbar ── */
+.toolbar{
+  position:fixed;bottom:0;left:0;right:0;z-index:100;
+  background:var(--surface);border-top:1px solid var(--border);
+  padding:10px 12px calc(10px + var(--safe-bottom));
+  display:flex;gap:10px;align-items:center;
+}
+.toolbar .btn{
+  flex:1;display:flex;align-items:center;justify-content:center;gap:6px;
+  padding:14px 8px;border:none;border-radius:var(--radius-xs);
+  font-size:15px;font-weight:600;cursor:pointer;transition:all .15s;
+  font-family:inherit;
+}
+.btn-camera{background:var(--primary);color:#fff}
+.btn-camera:active{background:#4338ca;transform:scale(.97)}
+.btn-gallery{background:var(--primary-light);color:var(--primary)}
+.btn-gallery:active{background:#e0e7ff;transform:scale(.97)}
+.btn-generate{
+  background:#0f172a;color:#fff;flex:1.2;
+  box-shadow:0 4px 12px rgba(15,23,42,.25);
+}
+.btn-generate:active{background:#1e293b;transform:scale(.97)}
+.btn-generate:disabled{
+  background:#cbd5e1;color:#94a3b8;box-shadow:none;cursor:not-allowed;
+}
+
+/* ── Modal ── */
+.modal-overlay{
+  position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.5);
+  display:flex;align-items:flex-end;justify-content:center;
+  backdrop-filter:blur(2px);opacity:0;pointer-events:none;transition:opacity .25s;
+}
+.modal-overlay.open{opacity:1;pointer-events:auto}
+.modal-sheet{
+  background:var(--surface);border-radius:20px 20px 0 0;width:100%;max-width:480px;
+  max-height:90dvh;overflow-y:auto;padding:20px 16px calc(20px + var(--safe-bottom));
+  transform:translateY(100%);transition:transform .3s cubic-bezier(.32,.72,0,1);
+}
+.modal-sheet.open{transform:translateY(0)}
+.modal-handle{width:36px;height:4px;background:#cbd5e1;border-radius:2px;margin:0 auto 16px}
+.modal-sheet h3{font-size:18px;font-weight:700;margin-bottom:16px}
+.modal-sheet .preview-img{
+  width:100%;border-radius:var(--radius-xs);border:1px solid var(--border);
+  margin-bottom:12px;
+}
+.modal-sheet .opt-row{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:12px 0;border-bottom:1px solid var(--border);gap:12px;
+}
+.modal-sheet .opt-row:last-child{border-bottom:none}
+.opt-row label{font-size:15px;font-weight:500}
+.opt-row .hint{font-size:12px;color:var(--text2);margin-top:2px}
+
+/* Toggle switch */
+.toggle{appearance:none;width:48px;height:28px;background:#cbd5e1;border-radius:14px;
+  cursor:pointer;transition:background .2s;position:relative;flex-shrink:0}
+.toggle::after{content:'';position:absolute;top:3px;left:3px;width:22px;height:22px;
+  background:#fff;border-radius:50%;transition:transform .2s;box-shadow:0 1px 3px rgba(0,0,0,.2)}
+.toggle:checked{background:var(--primary)}
+.toggle:checked::after{transform:translateX(20px)}
+
+/* Stepper */
+.stepper{display:flex;align-items:center;gap:8px}
+.stepper button{
+  width:32px;height:32px;border-radius:50%;border:2px solid var(--border);
+  background:var(--surface);font-size:18px;cursor:pointer;display:flex;
+  align-items:center;justify-content:center;color:var(--text);font-weight:700;
+}
+.stepper button:active{background:var(--bg)}
+.stepper span{font-size:15px;font-weight:600;min-width:28px;text-align:center}
+
+/* Toast */
+.toast{
+  position:fixed;top:20px;left:50%;transform:translateX(-50%) translateY(-120px);
+  z-index:300;background:#0f172a;color:#fff;padding:12px 24px;
+  border-radius:24px;font-size:14px;font-weight:500;white-space:nowrap;
+  pointer-events:none;transition:transform .3s cubic-bezier(.32,.72,0,1);
+  box-shadow:var(--shadow-lg);
+}
+.toast.show{transform:translateX(-50%) translateY(0)}
+.toast.success{background:#059669}
+
+/* Progress bar */
+.progress-bar{
+  position:fixed;top:0;left:0;right:0;height:3px;z-index:400;background:transparent;
+  pointer-events:none;
+}
+.progress-bar::after{
+  content:'';display:block;height:100%;background:var(--primary);
+  width:0;transition:width .3s;
+}
+.progress-bar.active::after{width:var(--p,0%)}
+
+/* Loading spinner */
+.spinner{display:inline-block;width:20px;height:20px;border:2.5px solid #cbd5e1;
+  border-top-color:var(--primary);border-radius:50%;animation:spin .6s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ── Desktop tweaks ── */
+@media(min-width:768px){
+  body{background:#e2e8f0}
+  .app-shell{
+    max-width:430px;margin:0 auto;background:var(--bg);
+    min-height:100dvh;position:relative;box-shadow:0 0 40px rgba(0,0,0,.1);
+  }
+  .header{position:sticky}
+  .thumb-grid{grid-template-columns:repeat(3,1fr)}
+}
+</style>
+</head>
+<body>
+
+<div class="app-shell">
+  <div class="progress-bar" id="progressBar"></div>
+
+  <header class="header">
+    <h1>📄 试卷扫描</h1>
+    <span class="badge" id="pageCount">0 页</span>
+  </header>
+
+  <main class="main" id="mainArea">
+    <!-- Empty state -->
+    <div class="empty-state" id="emptyState">
+      <div class="icon">📸</div>
+      <h2>开始扫描试卷</h2>
+      <p>拍照或从相册选择试卷照片，自动增强为一键打印的PDF</p>
+      <div class="tips">
+        <span>📷 拍照自动增强</span>
+        <span>📑 多页合成PDF</span>
+        <span>🖨️ A4纸适配</span>
+      </div>
+    </div>
+
+    <!-- Thumbnail grid -->
+    <div class="thumb-grid" id="thumbGrid"></div>
+  </main>
+
+  <nav class="toolbar">
+    <button class="btn btn-camera" id="btnCamera" onclick="takePhoto()">
+      📷 拍照
+    </button>
+    <button class="btn btn-gallery" id="btnGallery" onclick="pickFromGallery()">
+      🖼️ 选图
+    </button>
+    <button class="btn btn-generate" id="btnGenerate" disabled onclick="generatePDF()">
+      📑 生成PDF
+    </button>
+  </nav>
+
+  <!-- Settings modal -->
+  <div class="modal-overlay" id="settingsModal">
+    <div class="modal-sheet" id="settingsSheet">
+      <div class="modal-handle"></div>
+      <h3>⚙️ 设置</h3>
+      <div class="opt-row">
+        <div>
+          <label>文档增强</label>
+          <div class="hint">自动去阴影、提亮文字</div>
+        </div>
+        <input type="checkbox" class="toggle" id="optEnhance" checked onchange="updateSettings()">
+      </div>
+      <div class="opt-row">
+        <div>
+          <label>JPEG质量</label>
+          <div class="hint">越高越清晰，文件越大</div>
+        </div>
+        <div class="stepper">
+          <button onclick="adjustQuality(-5)">−</button>
+          <span id="qualityVal">85</span>
+          <button onclick="adjustQuality(+5)">+</button>
+        </div>
+      </div>
+      <button class="btn btn-camera" style="width:100%;margin-top:12px"
+        onclick="closeSettings()">完成</button>
+    </div>
+  </div>
+
+  <!-- Preview modal -->
+  <div class="modal-overlay" id="previewModal">
+    <div class="modal-sheet" id="previewSheet">
+      <div class="modal-handle"></div>
+      <h3>🔍 预览第 <span id="previewIdx">1</span> 页</h3>
+      <canvas id="previewCanvas" class="preview-img"></canvas>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-gallery" style="flex:1" onclick="prevPage()">◀ 上一页</button>
+        <button class="btn btn-gallery" style="flex:1" onclick="nextPage()">下一页 ▶</button>
+      </div>
+      <button class="btn btn-camera" style="width:100%;margin-top:8px"
+        onclick="closePreview()">关闭</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<input type="file" id="cameraInput" accept="image/*" capture="environment" style="display:none" onchange="handleCameraCapture(event)">
+<input type="file" id="galleryInput" accept="image/*" multiple style="display:none" onchange="handleGalleryPick(event)">
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script>
+// ═══════════════════════════════════════════
+//  APP STATE
+// ═══════════════════════════════════════════
+const state = {
+  pages: [],           // { id, name, original: dataURL, enhanced: dataURL, width, height }
+  settings: {
+    enhance: true,
+    jpegQuality: 0.85,
+    maxDim: 2048,      // max pixel dimension for processing
+  },
+  previewIdx: 0,
+  idCounter: 0,
+};
+
+// ═══════════════════════════════════════════
+//  DOM REFS
+// ═══════════════════════════════════════════
+const $ = id => document.getElementById(id);
+const emptyState = $('emptyState');
+const thumbGrid = $('thumbGrid');
+const pageCount = $('pageCount');
+const btnGenerate = $('btnGenerate');
+const progressBar = $('progressBar');
+const toastEl = $('toast');
+const cameraInput = $('cameraInput');
+const galleryInput = $('galleryInput');
+const settingsModal = $('settingsModal');
+const settingsSheet = $('settingsSheet');
+
+// ═══════════════════════════════════════════
+//  TOAST
+// ═══════════════════════════════════════════
+let toastTimer;
+function toast(msg, type='') {
+  clearTimeout(toastTimer);
+  toastEl.textContent = msg;
+  toastEl.className = 'toast ' + type + ' show';
+  toastTimer = setTimeout(() => toastEl.classList.remove('show'), 2200);
+}
+
+// ═══════════════════════════════════════════
+//  PROGRESS BAR
+// ═══════════════════════════════════════════
+function setProgress(pct) {
+  progressBar.classList.toggle('active', pct > 0 && pct < 100);
+  progressBar.style.setProperty('--p', pct + '%');
+}
+
+// ═══════════════════════════════════════════
+//  IMAGE PROCESSING PIPELINE
+// ═══════════════════════════════════════════
+function loadImage(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = e => {
+      const img = new Image();
+      img.onload = () => resolve({ img, dataURL: e.target.result });
+      img.onerror = reject;
+      img.src = e.target.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+function resizeImage(img, maxDim) {
+  const { width, height } = img;
+  if (width <= maxDim && height <= maxDim) return { width, height, scale: 1 };
+
+  const scale = maxDim / Math.max(width, height);
+  return {
+    width: Math.round(width * scale),
+    height: Math.round(height * scale),
+    scale,
+  };
+}
+
+function enhanceDocument(sourceCanvas) {
+  // Pipeline: grayscale → histogram stretch → sharpen
+  const w = sourceCanvas.width;
+  const h = sourceCanvas.height;
+  const offCanvas = document.createElement('canvas');
+  offCanvas.width = w;
+  offCanvas.height = h;
+  const ctx = offCanvas.getContext('2d');
+  ctx.drawImage(sourceCanvas, 0, 0);
+
+  const imageData = ctx.getImageData(0, 0, w, h);
+  const pixels = imageData.data;
+
+  // Step 1: Grayscale
+  const gray = new Float32Array(w * h);
+  for (let i = 0; i < gray.length; i++) {
+    const idx = i * 4;
+    gray[i] = 0.299 * pixels[idx] + 0.587 * pixels[idx + 1] + 0.114 * pixels[idx + 2];
+  }
+
+  // Step 2: Histogram analysis — find 2nd and 98th percentiles
+  const hist = new Uint32Array(256);
+  for (let i = 0; i < gray.length; i++) {
+    hist[Math.round(gray[i])]++;
+  }
+
+  let p2 = 0, p98 = 255;
+  const total = gray.length;
+  let cum = 0;
+  for (let i = 0; i < 256; i++) {
+    cum += hist[i];
+    if (cum < total * 0.02) p2 = i;
+  }
+  cum = 0;
+  for (let i = 255; i >= 0; i--) {
+    cum += hist[i];
+    if (cum < total * 0.02) p98 = i;
+  }
+
+  // Avoid flat images
+  if (p98 - p2 < 40) { p2 = Math.max(0, p2 - 20); p98 = Math.min(255, p98 + 20); }
+
+  // Step 3: Contrast stretch & apply to pixels
+  const range = p98 - p2 || 1;
+  for (let i = 0; i < gray.length; i++) {
+    const stretched = Math.round(((gray[i] - p2) / range) * 255);
+    const v = Math.max(0, Math.min(255, stretched));
+    const idx = i * 4;
+    pixels[idx] = pixels[idx + 1] = pixels[idx + 2] = v;
+  }
+
+  ctx.putImageData(imageData, 0, 0);
+
+  // Step 4: Unsharp mask (light)
+  const sharpenCanvas = document.createElement('canvas');
+  sharpenCanvas.width = w;
+  sharpenCanvas.height = h;
+  const sctx = sharpenCanvas.getContext('2d');
+  sctx.filter = 'contrast(1.15) brightness(1.05)';
+  sctx.drawImage(offCanvas, 0, 0);
+
+  return sharpenCanvas;
+}
+
+async function processImage(file) {
+  const { img, dataURL } = await loadImage(file);
+  const { width, height } = resizeImage(img, state.settings.maxDim);
+
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(img, 0, 0, width, height);
+
+  let enhanced = dataURL;
+  let enhancedCanvas = canvas;
+
+  if (state.settings.enhance) {
+    enhancedCanvas = enhanceDocument(canvas);
+    enhanced = enhancedCanvas.toDataURL('image/jpeg', state.settings.jpegQuality);
+  }
+
+  return {
+    id: ++state.idCounter,
+    name: file.name || `photo_${state.idCounter}`,
+    original: dataURL,
+    enhanced,
+    width: enhancedCanvas.width,
+    height: enhancedCanvas.height,
+    timestamp: Date.now(),
+  };
+}
+
+// ═══════════════════════════════════════════
+//  PHOTO CAPTURE & SELECTION
+// ═══════════════════════════════════════════
+function takePhoto() {
+  cameraInput.value = '';
+  cameraInput.click();
+}
+
+function pickFromGallery() {
+  galleryInput.value = '';
+  galleryInput.click();
+}
+
+async function handleCameraCapture(e) {
+  const files = e.target.files;
+  if (!files.length) return;
+  await addFiles([files[0]]);
+}
+
+async function handleGalleryPick(e) {
+  const files = e.target.files;
+  if (!files.length) return;
+  await addFiles(Array.from(files));
+}
+
+async function addFiles(files) {
+  setProgress(10);
+  const total = files.length;
+
+  for (let i = 0; i < files.length; i++) {
+    try {
+      const page = await processImage(files[i]);
+      state.pages.push(page);
+      setProgress(10 + Math.round(((i + 1) / total) * 80));
+    } catch (err) {
+      console.error('处理图片失败:', err);
+      toast('❌ 图片处理失败: ' + files[i].name);
+    }
+  }
+
+  setProgress(100);
+  setTimeout(() => setProgress(0), 400);
+  renderGrid();
+  toast(`✅ 已添加 ${files.length} 页`, 'success');
+}
+
+// ═══════════════════════════════════════════
+//  RENDER THUMBNAIL GRID
+// ═══════════════════════════════════════════
+function renderGrid() {
+  const hasPages = state.pages.length > 0;
+  emptyState.style.display = hasPages ? 'none' : '';
+  thumbGrid.style.display = hasPages ? '' : 'none';
+  pageCount.textContent = state.pages.length + ' 页';
+  btnGenerate.disabled = !hasPages;
+
+  thumbGrid.innerHTML = state.pages.map((page, idx) => `
+    <div class="thumb-card" data-idx="${idx}"
+         ontouchstart="onTouchStart(event, ${idx})"
+         ontouchmove="onTouchMove(event)"
+         ontouchend="onTouchEnd(event)"
+         onclick="openPreview(${idx})">
+      <img src="${page.enhanced}" alt="第${idx+1}页" loading="lazy">
+      <div class="card-actions">
+        <button class="card-btn" title="旋转" onclick="event.stopPropagation();rotatePage(${idx})">↻</button>
+        <button class="card-btn del" title="删除" onclick="event.stopPropagation();deletePage(${idx})">✕</button>
+      </div>
+      <span class="page-num">${idx + 1}</span>
+      ${state.settings.enhance ? '<span class="enhance-badge">增强</span>' : ''}
+      <div class="drag-handle"
+           ontouchstart="event.stopPropagation();onDragStart(event, ${idx})"
+           ontouchmove="event.stopPropagation();onDragMove(event)"
+           ontouchend="event.stopPropagation();onDragEnd(event)">⠿</div>
+    </div>
+  `).join('');
+
+  // Show touch-active class on mobile
+  document.querySelectorAll('.thumb-card').forEach(card => {
+    card.addEventListener('touchstart', () => card.classList.add('touch-active'), {once: false});
+    card.addEventListener('touchend', () => setTimeout(() => card.classList.remove('touch-active'), 300));
+  });
+}
+
+// ═══════════════════════════════════════════
+//  PAGE ACTIONS
+// ═══════════════════════════════════════════
+function deletePage(idx) {
+  if (!confirm(`删除第 ${idx + 1} 页？`)) return;
+  state.pages.splice(idx, 1);
+  renderGrid();
+  toast('已删除');
+}
+
+function rotatePage(idx) {
+  const page = state.pages[idx];
+  // Rotate 90° clockwise by swapping dimensions & redrawing
+  const img = new Image();
+  img.onload = () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = img.height;
+    canvas.height = img.width;
+    const ctx = canvas.getContext('2d');
+    ctx.translate(canvas.width, 0);
+    ctx.rotate(Math.PI / 2);
+    ctx.drawImage(img, 0, 0);
+
+    if (state.settings.enhance) {
+      const enhanced = enhanceDocument(canvas);
+      page.enhanced = enhanced.toDataURL('image/jpeg', state.settings.jpegQuality);
+    } else {
+      page.enhanced = canvas.toDataURL('image/jpeg', state.settings.jpegQuality);
+    }
+    page.original = canvas.toDataURL('image/jpeg', state.settings.jpegQuality);
+    // Swap w/h
+    [page.width, page.height] = [page.height, page.width];
+    renderGrid();
+    toast('↻ 已旋转');
+  };
+  img.src = page.enhanced;
+}
+
+// ═══════════════════════════════════════════
+//  TOUCH DRAG-TO-REORDER
+// ═══════════════════════════════════════════
+let dragIdx = -1;
+let dragClone = null;
+let dragStartY = 0;
+let dragOffsetY = 0;
+
+function onDragStart(e, idx) {
+  dragIdx = idx;
+  dragStartY = e.touches[0].clientY;
+  const card = thumbGrid.children[idx];
+  card.classList.add('dragging');
+  dragOffsetY = 0;
+}
+
+function onDragMove(e) {
+  if (dragIdx < 0) return;
+  e.preventDefault();
+  const dy = e.touches[0].clientY - dragStartY;
+  dragOffsetY = dy;
+
+  const card = thumbGrid.children[dragIdx];
+  if (card) card.style.transform = `translateY(${dy}px) scale(1.05)`;
+
+  // Determine hover index
+  const cards = [...thumbGrid.children];
+  const targetIdx = cards.findIndex((c, i) => {
+    if (i === dragIdx) return false;
+    const rect = c.getBoundingClientRect();
+    const midY = rect.top + rect.height / 2;
+    return e.touches[0].clientY > rect.top && e.touches[0].clientY < rect.bottom;
+  });
+
+  cards.forEach(c => c.classList.remove('drag-over'));
+  if (targetIdx >= 0) cards[targetIdx].classList.add('drag-over');
+}
+
+function onDragEnd(e) {
+  if (dragIdx < 0) return;
+
+  const card = thumbGrid.children[dragIdx];
+  if (card) {
+    card.classList.remove('dragging');
+    card.style.transform = '';
+  }
+
+  // Find drop target
+  const cards = [...thumbGrid.children];
+  const targetIdx = cards.findIndex(c => c.classList.contains('drag-over'));
+  cards.forEach(c => c.classList.remove('drag-over'));
+
+  if (targetIdx >= 0 && targetIdx !== dragIdx) {
+    const [moved] = state.pages.splice(dragIdx, 1);
+    state.pages.splice(targetIdx, 0, moved);
+    toast('已调整顺序');
+  }
+
+  dragIdx = -1;
+  dragOffsetY = 0;
+  renderGrid();
+}
+
+// Fallback touch handlers on the whole card
+function onTouchStart(e, idx) { /* handled by click */ }
+function onTouchMove(e) { /* no-op */ }
+function onTouchEnd(e) { /* no-op */ }
+
+// ═══════════════════════════════════════════
+//  PREVIEW MODAL
+// ═══════════════════════════════════════════
+function openPreview(idx) {
+  state.previewIdx = idx;
+  showPreviewModal();
+}
+
+function showPreviewModal() {
+  const idx = state.previewIdx;
+  if (idx < 0 || idx >= state.pages.length) return;
+
+  const page = state.pages[idx];
+  const canvas = $('previewCanvas');
+  const img = new Image();
+  img.onload = () => {
+    // Scale preview to fit modal width
+    const maxW = Math.min(window.innerWidth - 48, 400);
+    const scale = maxW / img.width;
+    canvas.width = maxW;
+    canvas.height = Math.round(img.height * scale);
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  };
+  img.src = page.enhanced;
+
+  $('previewIdx').textContent = idx + 1;
+  $('previewModal').classList.add('open');
+  $('previewSheet').classList.add('open');
+}
+
+function closePreview() {
+  $('previewModal').classList.remove('open');
+  $('previewSheet').classList.remove('open');
+}
+
+function prevPage() {
+  if (state.previewIdx > 0) {
+    state.previewIdx--;
+    showPreviewModal();
+  }
+}
+
+function nextPage() {
+  if (state.previewIdx < state.pages.length - 1) {
+    state.previewIdx++;
+    showPreviewModal();
+  }
+}
+
+// Close modals on overlay click
+$('previewModal').addEventListener('click', function(e) {
+  if (e.target === this) closePreview();
+});
+$('settingsModal').addEventListener('click', function(e) {
+  if (e.target === this) closeSettings();
+});
+
+// ═══════════════════════════════════════════
+//  SETTINGS
+// ═══════════════════════════════════════════
+function openSettings() {
+  $('settingsModal').classList.add('open');
+  $('settingsSheet').classList.add('open');
+}
+
+function closeSettings() {
+  $('settingsModal').classList.remove('open');
+  $('settingsSheet').classList.remove('open');
+
+  // Re-process if enhance setting changed while pages exist
+  if (state.pages.length > 0) {
+    reEnhanceAll();
+  }
+}
+
+function updateSettings() {
+  state.settings.enhance = $('optEnhance').checked;
+  $('qualityVal').textContent = Math.round(state.settings.jpegQuality * 100);
+}
+
+function adjustQuality(delta) {
+  state.settings.jpegQuality = Math.max(0.5, Math.min(1.0, state.settings.jpegQuality + delta / 100));
+  $('qualityVal').textContent = Math.round(state.settings.jpegQuality * 100);
+}
+
+async function reEnhanceAll() {
+  if (!state.pages.length) return;
+  setProgress(5);
+  toast('🔄 重新处理中...');
+
+  for (let i = 0; i < state.pages.length; i++) {
+    const page = state.pages[i];
+    const img = new Image();
+    await new Promise(resolve => {
+      img.onload = async () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = page.width;
+        canvas.height = page.height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+
+        if (state.settings.enhance) {
+          const enhanced = enhanceDocument(canvas);
+          page.enhanced = enhanced.toDataURL('image/jpeg', state.settings.jpegQuality);
+        } else {
+          page.enhanced = page.original;
+        }
+        resolve();
+      };
+      img.src = page.original;
+    });
+    setProgress(5 + Math.round(((i + 1) / state.pages.length) * 90));
+  }
+
+  setProgress(100);
+  setTimeout(() => setProgress(0), 400);
+  renderGrid();
+  toast('✅ 处理完成', 'success');
+}
+
+// ═══════════════════════════════════════════
+//  PDF GENERATION
+// ═══════════════════════════════════════════
+async function generatePDF() {
+  if (!state.pages.length) return;
+
+  const btn = btnGenerate;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> 生成中...';
+  setProgress(10);
+
+  try {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({
+      orientation: 'portrait',
+      unit: 'mm',
+      format: 'a4',
+    });
+
+    // A4 dimensions in mm: 210 × 297
+    const pageW = 210;
+    const pageH = 297;
+    const margin = 12; // mm
+    const usableW = pageW - margin * 2;
+    const usableH = pageH - margin * 2;
+
+    for (let i = 0; i < state.pages.length; i++) {
+      if (i > 0) doc.addPage();
+
+      const page = state.pages[i];
+      // Calculate image dimensions in mm (assume 72dpi → 1px ≈ 0.3528mm at 72dpi)
+      // But phone photos are much larger; we map to fit within usable area
+      const imgW_mm = (page.width / 300) * 25.4; // assume 300dpi resolution
+      const imgH_mm = (page.height / 300) * 25.4;
+
+      // Scale to fit
+      const scale = Math.min(usableW / imgW_mm, usableH / imgH_mm, 1);
+      const drawW = imgW_mm * scale;
+      const drawH = imgH_mm * scale;
+
+      // Center on page
+      const x = margin + (usableW - drawW) / 2;
+      const y = margin + (usableH - drawH) / 2;
+
+      doc.addImage(page.enhanced, 'JPEG', x, y, drawW, drawH, undefined, 'FAST');
+      setProgress(10 + Math.round(((i + 1) / state.pages.length) * 80));
+    }
+
+    setProgress(95);
+
+    // Generate filename with date
+    const now = new Date();
+    const dateStr = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}`;
+    const filename = `试卷扫描_${dateStr}.pdf`;
+
+    // Save / share
+    const pdfBlob = doc.output('blob');
+
+    setProgress(100);
+
+    // Try Web Share API first (mobile), fallback to download
+    if (navigator.share && navigator.canShare) {
+      const file = new File([pdfBlob], filename, { type: 'application/pdf' });
+      if (navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          files: [file],
+          title: '试卷扫描PDF',
+        });
+        toast('✅ 已分享', 'success');
+      } else {
+        downloadBlob(pdfBlob, filename);
+      }
+    } else {
+      downloadBlob(pdfBlob, filename);
+    }
+  } catch (err) {
+    if (err.name !== 'AbortError') {
+      console.error('PDF生成失败:', err);
+      toast('❌ 生成失败，请重试');
+    }
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '📑 生成PDF';
+    setTimeout(() => setProgress(0), 500);
+  }
+}
+
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  toast('✅ PDF已下载', 'success');
+}
+
+// ═══════════════════════════════════════════
+//  SETTINGS BUTTON (trigger from anywhere)
+// ═══════════════════════════════════════════
+// Double-tap header to open settings
+document.querySelector('.header').addEventListener('dblclick', openSettings);
+
+// Also add a small gear in the top bar
+document.querySelector('.header').insertAdjacentHTML('beforeend',
+  '<button style="background:none;border:none;font-size:20px;cursor:pointer;padding:4px 8px"' +
+  ' onclick="openSettings()" title="设置">⚙️</button>');
+document.querySelector('.header').style.justifyContent = 'space-between';
+
+// ═══════════════════════════════════════════
+//  KEYBOARD SHORTCUTS (desktop)
+// ═══════════════════════════════════════════
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    closePreview();
+    closeSettings();
+  }
+  if (e.ctrlKey && e.key === 'Enter' && state.pages.length > 0) {
+    generatePDF();
+  }
+});
+
+// ═══════════════════════════════════════════
+//  PWA INSTALL PROMPT
+// ═══════════════════════════════════════════
+let deferredPrompt;
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredPrompt = e;
+  // Show a subtle install hint after 5 seconds
+  setTimeout(() => {
+    if (deferredPrompt) {
+      toast('💡 点击右上角可安装到桌面');
+    }
+  }, 5000);
+});
+
+// ═══════════════════════════════════════════
+//  INIT
+// ═══════════════════════════════════════════
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+
+renderGrid();
+</script>
+</body>
+</html>
