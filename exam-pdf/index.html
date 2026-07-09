@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-<title>试卷扫描 — 照片转PDF</title>
-<meta name="description" content="把试卷、文档照片一键转为高清PDF，支持文档增强、多页排序，打印即用">
+<title>试卷扫描 — 照片转PDF & PDF转Word</title>
+<meta name="description" content="照片一键转PDF，PDF转Word文档，支持文档增强、双语对照、打印即用">
 <meta name="theme-color" content="#4f46e5">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -223,6 +223,30 @@ body{
   .header{position:sticky}
   .thumb-grid{grid-template-columns:repeat(3,1fr)}
 }
+
+/* ── Tab bar ── */
+.tab-bar{display:flex;margin:-6px -12px 0;background:var(--surface);
+  border-bottom:1px solid var(--border);position:sticky;top:52px;z-index:99}
+.tab-btn{flex:1;padding:12px 8px;border:none;background:none;font-size:14px;
+  font-weight:600;cursor:pointer;font-family:inherit;color:var(--text2);
+  border-bottom:2.5px solid transparent;transition:all .2s}
+.tab-btn.active{color:var(--primary);border-bottom-color:var(--primary)}
+.tab-panel{display:none;flex-direction:column;gap:10px}
+.tab-panel.active{display:flex}
+
+/* ── PDF→Word upload zone ── */
+.upload-zone{border:2.5px dashed var(--border);border-radius:var(--radius);
+  padding:36px 20px;text-align:center;cursor:pointer;transition:all .2s;
+  background:var(--surface);margin:8px 0}
+.upload-zone:hover,.upload-zone.drag-over{border-color:var(--primary);background:var(--primary-light)}
+.upload-zone .upload-icon{font-size:48px;margin-bottom:8px}
+.upload-zone h3{font-size:16px;font-weight:600;margin-bottom:4px}
+.upload-zone p{font-size:13px;color:var(--text2)}
+.pdf-pages{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.pdf-page-card{background:var(--surface);border-radius:var(--radius-xs);
+  overflow:hidden;box-shadow:var(--shadow);border:1px solid var(--border)}
+.pdf-page-card canvas{width:100%;display:block}
+.pdf-page-card .page-label{font-size:11px;text-align:center;padding:4px;color:var(--text2)}
 </style>
 </head>
 <body>
@@ -235,24 +259,44 @@ body{
     <span class="badge" id="pageCount">0 页</span>
   </header>
 
+  <!-- Tab bar -->
+  <div class="tab-bar" id="tabBar">
+    <button class="tab-btn active" data-tab="photo">📷 照片转PDF</button>
+    <button class="tab-btn" data-tab="word">📝 PDF转Word</button>
+  </div>
+
   <main class="main" id="mainArea">
-    <!-- Empty state -->
-    <div class="empty-state" id="emptyState">
-      <div class="icon">📸</div>
-      <h2>开始扫描试卷</h2>
-      <p>拍照或从相册选择试卷照片，自动增强为一键打印的PDF</p>
-      <div class="tips">
-        <span>📷 拍照自动增强</span>
-        <span>📑 多页合成PDF</span>
-        <span>🖨️ A4纸适配</span>
+    <!-- ── Tab 1: Photo → PDF ── -->
+    <div class="tab-panel active" id="panelPhoto">
+      <div class="empty-state" id="emptyState">
+        <div class="icon">📸</div>
+        <h2>开始扫描试卷</h2>
+        <p>拍照或从相册选择试卷照片，自动增强为一键打印的PDF</p>
+        <div class="tips">
+          <span>📷 拍照自动增强</span>
+          <span>📑 多页合成PDF</span>
+          <span>🖨️ A4纸适配</span>
+        </div>
       </div>
+      <div class="thumb-grid" id="thumbGrid"></div>
     </div>
 
-    <!-- Thumbnail grid -->
-    <div class="thumb-grid" id="thumbGrid"></div>
+    <!-- ── Tab 2: PDF → Word ── -->
+    <div class="tab-panel" id="panelWord">
+      <div class="upload-zone" id="uploadZone" onclick="document.getElementById('pdfInput').click()">
+        <div class="upload-icon">📄</div>
+        <h3>点击上传 PDF 文件</h3>
+        <p>支持 .pdf 格式，将提取文字生成 Word 文档</p>
+      </div>
+      <div class="pdf-pages" id="pdfPages"></div>
+      <button class="btn btn-camera" id="btnWordConvert"
+        style="width:100%;margin-top:8px;display:none" onclick="convertToWord()">
+        📝 转为 Word 文档
+      </button>
+    </div>
   </main>
 
-  <nav class="toolbar">
+  <nav class="toolbar" id="toolbarPhoto">
     <button class="btn btn-camera" id="btnCamera" onclick="takePhoto()">
       📷 拍照
     </button>
@@ -263,6 +307,17 @@ body{
       📑 生成PDF
     </button>
   </nav>
+
+  <nav class="toolbar" id="toolbarWord" style="display:none">
+    <button class="btn btn-camera" onclick="document.getElementById('pdfInput').click()">
+      📄 选择PDF
+    </button>
+    <button class="btn btn-generate" id="btnWordGenerate" disabled onclick="convertToWord()">
+      📝 转为Word
+    </button>
+  </nav>
+
+  <input type="file" id="pdfInput" accept=".pdf,application/pdf" style="display:none" onchange="handlePDFUpload(event)">
 
   <!-- Settings modal -->
   <div class="modal-overlay" id="settingsModal">
@@ -313,20 +368,21 @@ body{
 <input type="file" id="cameraInput" accept="image/*" capture="environment" style="display:none" onchange="handleCameraCapture(event)">
 <input type="file" id="galleryInput" accept="image/*" multiple style="display:none" onchange="handleGalleryPick(event)">
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://unpkg.com/docx@8.5.0/build/index.umd.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script>
 // ═══════════════════════════════════════════
 //  APP STATE
 // ═══════════════════════════════════════════
 const state = {
-  pages: [],           // { id, name, original: dataURL, enhanced: dataURL, width, height }
+  pages: [],           // { original: dataURL, enhanced: dataURL, width, height }
   settings: {
     enhance: true,
     jpegQuality: 0.85,
     maxDim: 2048,      // max pixel dimension for processing
   },
   previewIdx: 0,
-  idCounter: 0,
 };
 
 // ═══════════════════════════════════════════
@@ -456,6 +512,20 @@ function enhanceDocument(sourceCanvas) {
   return sharpenCanvas;
 }
 
+// Shared helper: encode a canvas to JPEG using current quality setting
+function encodeJPEG(canvas) {
+  return canvas.toDataURL('image/jpeg', state.settings.jpegQuality);
+}
+
+// Shared helper: conditionally enhance then encode
+function applyEnhance(canvas) {
+  if (state.settings.enhance) {
+    const enhanced = enhanceDocument(canvas);
+    return enhanced.toDataURL('image/jpeg', state.settings.jpegQuality);
+  }
+  return encodeJPEG(canvas);
+}
+
 async function processImage(file) {
   const { img, dataURL } = await loadImage(file);
   const { width, height } = resizeImage(img, state.settings.maxDim);
@@ -466,22 +536,13 @@ async function processImage(file) {
   const ctx = canvas.getContext('2d');
   ctx.drawImage(img, 0, 0, width, height);
 
-  let enhanced = dataURL;
-  let enhancedCanvas = canvas;
-
-  if (state.settings.enhance) {
-    enhancedCanvas = enhanceDocument(canvas);
-    enhanced = enhancedCanvas.toDataURL('image/jpeg', state.settings.jpegQuality);
-  }
+  let enhanced = state.settings.enhance ? applyEnhance(canvas) : dataURL;
 
   return {
-    id: ++state.idCounter,
-    name: file.name || `photo_${state.idCounter}`,
     original: dataURL,
     enhanced,
-    width: enhancedCanvas.width,
-    height: enhancedCanvas.height,
-    timestamp: Date.now(),
+    width: canvas.width,
+    height: canvas.height,
   };
 }
 
@@ -525,10 +586,15 @@ async function addFiles(files) {
     }
   }
 
+  const successCount = state.pages.length;
   setProgress(100);
   setTimeout(() => setProgress(0), 400);
   renderGrid();
-  toast(`✅ 已添加 ${files.length} 页`, 'success');
+  if (successCount === files.length) {
+    toast(`✅ 已添加 ${successCount} 页`, 'success');
+  } else {
+    toast(`⚠️ 已添加 ${successCount}/${files.length} 页`, successCount > 0 ? '' : '');
+  }
 }
 
 // ═══════════════════════════════════════════
@@ -543,9 +609,6 @@ function renderGrid() {
 
   thumbGrid.innerHTML = state.pages.map((page, idx) => `
     <div class="thumb-card" data-idx="${idx}"
-         ontouchstart="onTouchStart(event, ${idx})"
-         ontouchmove="onTouchMove(event)"
-         ontouchend="onTouchEnd(event)"
          onclick="openPreview(${idx})">
       <img src="${page.enhanced}" alt="第${idx+1}页" loading="lazy">
       <div class="card-actions">
@@ -591,18 +654,15 @@ function rotatePage(idx) {
     ctx.rotate(Math.PI / 2);
     ctx.drawImage(img, 0, 0);
 
-    if (state.settings.enhance) {
-      const enhanced = enhanceDocument(canvas);
-      page.enhanced = enhanced.toDataURL('image/jpeg', state.settings.jpegQuality);
-    } else {
-      page.enhanced = canvas.toDataURL('image/jpeg', state.settings.jpegQuality);
-    }
-    page.original = canvas.toDataURL('image/jpeg', state.settings.jpegQuality);
+    page.enhanced = applyEnhance(canvas);
+    // Preserve original for future re-enhancement fidelity
+    page.original = encodeJPEG(canvas);
     // Swap w/h
     [page.width, page.height] = [page.height, page.width];
     renderGrid();
     toast('↻ 已旋转');
   };
+  img.onerror = () => { toast('⚠️ 旋转失败'); };
   img.src = page.enhanced;
 }
 
@@ -610,23 +670,19 @@ function rotatePage(idx) {
 //  TOUCH DRAG-TO-REORDER
 // ═══════════════════════════════════════════
 let dragIdx = -1;
-let dragClone = null;
 let dragStartY = 0;
-let dragOffsetY = 0;
 
 function onDragStart(e, idx) {
   dragIdx = idx;
   dragStartY = e.touches[0].clientY;
   const card = thumbGrid.children[idx];
   card.classList.add('dragging');
-  dragOffsetY = 0;
 }
 
 function onDragMove(e) {
   if (dragIdx < 0) return;
   e.preventDefault();
   const dy = e.touches[0].clientY - dragStartY;
-  dragOffsetY = dy;
 
   const card = thumbGrid.children[dragIdx];
   if (card) card.style.transform = `translateY(${dy}px) scale(1.05)`;
@@ -636,7 +692,6 @@ function onDragMove(e) {
   const targetIdx = cards.findIndex((c, i) => {
     if (i === dragIdx) return false;
     const rect = c.getBoundingClientRect();
-    const midY = rect.top + rect.height / 2;
     return e.touches[0].clientY > rect.top && e.touches[0].clientY < rect.bottom;
   });
 
@@ -665,14 +720,9 @@ function onDragEnd(e) {
   }
 
   dragIdx = -1;
-  dragOffsetY = 0;
   renderGrid();
 }
 
-// Fallback touch handlers on the whole card
-function onTouchStart(e, idx) { /* handled by click */ }
-function onTouchMove(e) { /* no-op */ }
-function onTouchEnd(e) { /* no-op */ }
 
 // ═══════════════════════════════════════════
 //  PREVIEW MODAL
@@ -698,6 +748,7 @@ function showPreviewModal() {
     const ctx = canvas.getContext('2d');
     ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
   };
+  img.onerror = () => { canvas.width = canvas.height = 0; };
   img.src = page.enhanced;
 
   $('previewIdx').textContent = idx + 1;
@@ -740,12 +791,15 @@ function openSettings() {
   $('settingsSheet').classList.add('open');
 }
 
+let settingsChanged = false;
+
 function closeSettings() {
   $('settingsModal').classList.remove('open');
   $('settingsSheet').classList.remove('open');
 
-  // Re-process if enhance setting changed while pages exist
-  if (state.pages.length > 0) {
+  // Re-process only if a setting actually changed
+  if (state.pages.length > 0 && settingsChanged) {
+    settingsChanged = false;
     reEnhanceAll();
   }
 }
@@ -753,11 +807,13 @@ function closeSettings() {
 function updateSettings() {
   state.settings.enhance = $('optEnhance').checked;
   $('qualityVal').textContent = Math.round(state.settings.jpegQuality * 100);
+  settingsChanged = true;
 }
 
 function adjustQuality(delta) {
   state.settings.jpegQuality = Math.max(0.5, Math.min(1.0, state.settings.jpegQuality + delta / 100));
   $('qualityVal').textContent = Math.round(state.settings.jpegQuality * 100);
+  settingsChanged = true;
 }
 
 async function reEnhanceAll() {
@@ -776,14 +832,10 @@ async function reEnhanceAll() {
         const ctx = canvas.getContext('2d');
         ctx.drawImage(img, 0, 0);
 
-        if (state.settings.enhance) {
-          const enhanced = enhanceDocument(canvas);
-          page.enhanced = enhanced.toDataURL('image/jpeg', state.settings.jpegQuality);
-        } else {
-          page.enhanced = page.original;
-        }
+        page.enhanced = applyEnhance(canvas);
         resolve();
       };
+      img.onerror = () => { resolve(); }; // skip corrupt images
       img.src = page.original;
     });
     setProgress(5 + Math.round(((i + 1) / state.pages.length) * 90));
@@ -807,6 +859,10 @@ async function generatePDF() {
   setProgress(10);
 
   try {
+    if (!window.jspdf) {
+      toast('❌ PDF库加载失败，请检查网络后刷新');
+      return;
+    }
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF({
       orientation: 'portrait',
@@ -889,8 +945,11 @@ function downloadBlob(blob, filename) {
   a.download = filename;
   document.body.appendChild(a);
   a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  // Defer cleanup — browser download is async, revoking immediately may cancel it
+  setTimeout(() => {
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, 150);
   toast('✅ PDF已下载', 'success');
 }
 
@@ -912,7 +971,10 @@ document.querySelector('.header').style.justifyContent = 'space-between';
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
     closePreview();
-    closeSettings();
+    // Only close settings if it's actually open to avoid unnecessary reEnhanceAll
+    if ($('settingsModal').classList.contains('open')) {
+      closeSettings();
+    }
   }
   if (e.ctrlKey && e.key === 'Enter' && state.pages.length > 0) {
     generatePDF();
@@ -938,7 +1000,163 @@ window.addEventListener('beforeinstallprompt', (e) => {
 //  INIT
 // ═══════════════════════════════════════════
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('sw.js').catch(() => {});
+  navigator.serviceWorker.register('sw.js').catch(err => {
+    console.error('SW注册失败:', err);
+  });
+}
+
+// ═══════════════════════════════════════════
+//  TAB SWITCHING
+// ═══════════════════════════════════════════
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const tab = btn.dataset.tab;
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    document.getElementById('panel' + (tab === 'photo' ? 'Photo' : 'Word')).classList.add('active');
+    $('toolbarPhoto').style.display = tab === 'photo' ? 'flex' : 'none';
+    $('toolbarWord').style.display = tab === 'word' ? 'flex' : 'none';
+    $('pageCount').textContent = tab === 'photo' ? state.pages.length + ' 页' : pdfPages.length + ' 页';
+  });
+});
+
+// ═══════════════════════════════════════════
+//  PDF → WORD
+// ═══════════════════════════════════════════
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+let pdfPages = [];
+let pdfDoc = null;
+
+async function handlePDFUpload(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  $('uploadZone').style.display = 'none';
+  setProgress(10);
+  toast('📄 正在解析PDF...');
+
+  try {
+    const arrayBuf = await file.arrayBuffer();
+    pdfDoc = await pdfjsLib.getDocument({ data: arrayBuf }).promise;
+    const total = pdfDoc.numPages;
+    pdfPages = [];
+
+    for (let i = 1; i <= total; i++) {
+      const page = await pdfDoc.getPage(i);
+      const textContent = await page.getTextContent();
+      const text = textContent.items.map(it => it.str).join(' ');
+      const viewport = page.getViewport({ scale: 0.5 });
+      const canvas = document.createElement('canvas');
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      const ctx = canvas.getContext('2d');
+      await page.render({ canvasContext: ctx, viewport }).promise;
+      pdfPages.push({ num: i, text, canvas: canvas.toDataURL() });
+      setProgress(10 + Math.round((i / total) * 80));
+    }
+
+    renderPDFPages();
+    $('btnWordConvert').style.display = 'block';
+    $('btnWordGenerate').disabled = false;
+    $('pageCount').textContent = pdfPages.length + ' 页';
+    setProgress(100);
+    setTimeout(() => setProgress(0), 400);
+    toast(`✅ 已解析 ${pdfPages.length} 页PDF`, 'success');
+  } catch (err) {
+    console.error('PDF解析失败:', err);
+    toast('❌ PDF解析失败，请检查文件');
+    $('uploadZone').style.display = '';
+    setProgress(0);
+  }
+}
+
+function renderPDFPages() {
+  $('pdfPages').innerHTML = pdfPages.map((p, i) => `
+    <div class="pdf-page-card">
+      <img src="${p.canvas}" alt="第${p.num}页" style="width:100%;display:block">
+      <div class="page-label">第 ${p.num} 页</div>
+    </div>
+  `).join('');
+}
+
+async function convertToWord() {
+  if (!pdfPages.length) return;
+
+  const btn = $('btnWordConvert');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> 转换中...';
+  setProgress(10);
+
+  try {
+    const { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType } = docx;
+
+    const children = [];
+    for (let i = 0; i < pdfPages.length; i++) {
+      const page = pdfPages[i];
+      if (pdfPages.length > 1) {
+        children.push(new Paragraph({
+          children: [new TextRun({ text: `第 ${page.num} 页`, bold: true, size: 28, color: '4f46e5' })],
+          heading: HeadingLevel.HEADING_2,
+          spacing: { before: 300, after: 200 },
+        }));
+      }
+
+      const paragraphs = page.text.split(/\n{2,}/).filter(t => t.trim());
+      for (const para of paragraphs) {
+        children.push(new Paragraph({
+          children: [new TextRun({ text: para.trim(), size: 22 })],
+          spacing: { after: 120 },
+          alignment: AlignmentType.JUSTIFIED,
+        }));
+      }
+      setProgress(10 + Math.round(((i + 1) / pdfPages.length) * 80));
+    }
+
+    const doc = new Document({
+      sections: [{ children }],
+    });
+
+    setProgress(95);
+    const blob = await Packer.toBlob(doc);
+
+    const filename = `转换文档_${new Date().toISOString().slice(0,10)}.docx`;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a); URL.revokeObjectURL(url);
+
+    setProgress(100);
+    setTimeout(() => setProgress(0), 400);
+    toast('✅ Word文档已下载', 'success');
+  } catch (err) {
+    console.error('Word转换失败:', err);
+    toast('❌ 转换失败，请重试');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '📝 转为 Word 文档';
+  }
+}
+
+// Drag & drop for PDF upload
+const uploadZone = document.getElementById('uploadZone');
+if (uploadZone) {
+  uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.classList.add('drag-over'); });
+  uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('drag-over'));
+  uploadZone.addEventListener('drop', e => {
+    e.preventDefault();
+    uploadZone.classList.remove('drag-over');
+    const file = e.dataTransfer.files[0];
+    if (file && (file.type === 'application/pdf' || file.name.endsWith('.pdf'))) {
+      const input = document.getElementById('pdfInput');
+      const dt = new DataTransfer();
+      dt.items.add(file);
+      input.files = dt.files;
+      handlePDFUpload({ target: input });
+    }
+  });
 }
 
 renderGrid();
