@@ -369,7 +369,6 @@ body{
 <input type="file" id="galleryInput" accept="image/*" multiple style="display:none" onchange="handleGalleryPick(event)">
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-<script src="https://unpkg.com/docx@8.5.0/build/index.umd.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script>
 // ═══════════════════════════════════════════
@@ -1091,46 +1090,42 @@ async function convertToWord() {
   btn.innerHTML = '<span class="spinner"></span> 转换中...';
   setProgress(10);
 
-  if (typeof docx === 'undefined') {
-    toast('❌ Word组件加载失败，请刷新页面重试');
-    btn.disabled = false;
-    btn.innerHTML = '📝 转为 Word 文档';
-    return;
-  }
-
   try {
-    const { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType } = docx;
+    // Build HTML that Word can open natively
+    let html = `<html xmlns:o="urn:schemas-microsoft-com:office:office"
+      xmlns:w="urn:schemas-microsoft-com:office:word"
+      xmlns="http://www.w3.org/TR/REC-html40">
+    <head><meta charset="UTF-8">
+    <style>
+      @page { size: A4; margin: 2cm; }
+      body { font-family: 'Microsoft YaHei', 'SimSun', sans-serif; font-size: 14px; line-height: 1.8; color: #333; }
+      h2 { color: #4f46e5; font-size: 18px; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px; }
+      p { margin-bottom: 8px; text-indent: 2em; }
+      .page-break { page-break-before: always; }
+    </style></head><body>`;
 
-    const children = [];
     for (let i = 0; i < pdfPages.length; i++) {
       const page = pdfPages[i];
       if (pdfPages.length > 1) {
-        children.push(new Paragraph({
-          children: [new TextRun({ text: `第 ${page.num} 页`, bold: true, size: 28, color: '4f46e5' })],
-          heading: HeadingLevel.HEADING_2,
-          spacing: { before: 300, after: 200 },
-        }));
+        html += `<h2>📄 第 ${page.num} 页</h2>`;
       }
-
       const paragraphs = page.text.split(/\n{2,}/).filter(t => t.trim());
       for (const para of paragraphs) {
-        children.push(new Paragraph({
-          children: [new TextRun({ text: para.trim(), size: 22 })],
-          spacing: { after: 120 },
-          alignment: AlignmentType.JUSTIFIED,
-        }));
+        html += `<p>${escapeHTML(para.trim())}</p>`;
+      }
+      if (i < pdfPages.length - 1) {
+        html += '<hr class="page-break">';
       }
       setProgress(10 + Math.round(((i + 1) / pdfPages.length) * 80));
     }
 
-    const doc = new Document({
-      sections: [{ children }],
-    });
+    html += '</body></html>';
 
     setProgress(95);
-    const blob = await Packer.toBlob(doc);
 
-    const filename = `转换文档_${new Date().toISOString().slice(0,10)}.docx`;
+    // Save as .doc (Word opens HTML natively)
+    const blob = new Blob(['﻿' + html], { type: 'application/msword' });
+    const filename = `转换文档_${new Date().toISOString().slice(0, 10)}.doc`;
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url; a.download = filename;
@@ -1147,6 +1142,10 @@ async function convertToWord() {
     btn.disabled = false;
     btn.innerHTML = '📝 转为 Word 文档';
   }
+}
+
+function escapeHTML(str) {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 // Drag & drop for PDF upload
